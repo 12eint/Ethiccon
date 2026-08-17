@@ -53,7 +53,7 @@ export function renderProformaModule(container, eventId, onChange) {
                 return raw(html`
                   <tr>
                     <td><strong>${proforma.invoiceNo}</strong></td>
-                    <td>${proforma.companyName || '-'}</td>
+                    <td>${resolveCompany(proforma).name || '-'}</td>
                     <td>${formatDate(proforma.issueDate)}</td>
                     <td>${formatDate(proforma.dueDate)}</td>
                     <td style="font-weight:600;">${formatCurrency(total)}</td>
@@ -354,20 +354,37 @@ function openProformaModal(proforma, eventId, onDone) {
   recalc();
 }
 
-/** Yazdırılabilir belgeyi çizer ve PDF indirir. */
-function showPrintable(host, proformaId) {
-  const proforma = DB.proformas.getById(proformaId);
-  if (!proforma || !host) return;
+/**
+ * Faturanın hangi firmaya kesildiğini çözer.
+ * Eski kayıtlarda firma yalnızca sponsorId üzerinden bağlıydı; companyName
+ * alanı sonradan eklendi, o yüzden ikisine de bakılır.
+ */
+function resolveCompany(proforma) {
+  const companies = DB.companies.getAll();
+  const byName = companies.find((c) => c.name === proforma.companyName);
+  if (byName) return { record: byName, name: byName.name };
 
-  const items = DB.proformaItems.getByProformaId(proformaId);
+  if (proforma.companyName) return { record: {}, name: proforma.companyName };
+
+  // Eski proformalar: sponsor kaydından firma adını türet.
+  const sponsorName = proforma.sponsorId ? DB.sponsors.getById(proforma.sponsorId)?.companyName : null;
+  if (!sponsorName) return { record: {}, name: '' };
+
+  const bySponsor = companies.find((c) => c.name === sponsorName);
+  return { record: bySponsor ?? {}, name: sponsorName };
+}
+
+/** Fatura gövdesinin HTML'i. Hem ekran önizlemesi hem PDF bunu kullanır. */
+function invoiceMarkup(proforma) {
+  const items = DB.proformaItems.getByProformaId(proforma.id);
   const settings = DB.settings.get();
   const event = DB.events.getById(proforma.eventId) ?? {};
-  const company = DB.companies.getAll().find((c) => c.name === proforma.companyName) ?? {};
+  const { record: company, name: companyName } = resolveCompany(proforma);
   const subtotal = subtotalOf(items);
   const vatAmount = subtotal * (Number(proforma.vatRate) || 0) / 100;
 
-  host.innerHTML = html`
-    <div class="card" id="proformaDocument" style="padding:48px;margin-top:24px;">
+  return html`
+    <div class="invoice-body">
       <div style="display:flex;justify-content:space-between;border-bottom:2px solid var(--slate-200);padding-bottom:24px;margin-bottom:32px;align-items:center;gap:24px;">
         <div style="display:flex;gap:24px;align-items:center;">
           ${settings.agencyLogo ? raw(`<img src="${settings.agencyLogo}" style="max-height:80px;max-width:150px;object-fit:contain;" alt="">`) : ''}
@@ -384,9 +401,9 @@ function showPrintable(host, proformaId) {
         </div>
       </div>
 
-      <div style="margin-bottom:32px;padding:16px;background:var(--slate-50);border-radius:var(--radius-md);">
+      <div class="pf-block" style="margin-bottom:32px;padding:16px;background:var(--slate-50);border-radius:var(--radius-md);">
         <h4 style="font-size:1rem;font-weight:700;margin-bottom:8px;">Fatura Edilecek Firma</h4>
-        <p style="margin:0;font-weight:600;">${company.commercialTitle || proforma.companyName || '-'}</p>
+        <p style="margin:0;font-weight:600;">${company.commercialTitle || companyName || 'Firma seçilmedi'}</p>
         <p style="margin:4px 0 0;font-size:0.875rem;color:var(--slate-600);">${company.address || 'Adres bilgisi yok'}</p>
         <p style="margin:4px 0 0;font-size:0.875rem;color:var(--slate-600);">VD: ${company.taxOffice || '-'} / VN: ${company.taxNumber || '-'}</p>
       </div>
@@ -412,7 +429,7 @@ function showPrintable(host, proformaId) {
         </tbody>
       </table>
 
-      <div style="display:flex;justify-content:flex-end;margin-bottom:32px;">
+      <div class="pf-block" style="display:flex;justify-content:flex-end;margin-bottom:32px;">
         <div style="width:320px;">
           <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--slate-200);">
             <span style="color:var(--slate-600);">Ara Toplam:</span><span style="font-weight:600;">${formatCurrency(subtotal)}</span>
@@ -439,7 +456,7 @@ function showPrintable(host, proformaId) {
 
       ${proforma.notes ? raw(html`<p style="font-size:0.875rem;color:var(--slate-600);margin-bottom:24px;">${proforma.notes}</p>`) : ''}
 
-      <div style="display:flex;justify-content:space-between;border-top:1px solid var(--slate-200);padding-top:24px;gap:24px;">
+      <div class="pf-block" style="display:flex;justify-content:space-between;border-top:1px solid var(--slate-200);padding-top:24px;gap:24px;">
         <div style="flex:1;">
           <strong>Banka ve Ödeme Bilgileri:</strong>
           <div style="color:var(--slate-600);font-size:0.875rem;margin-top:4px;white-space:pre-wrap;">${settings.agencyIban || 'Sistem ayarlarından IBAN girin.'}</div>
@@ -450,41 +467,103 @@ function showPrintable(host, proformaId) {
         </div>
       </div>
 
-      <div style="text-align:center;border-top:1px solid var(--slate-200);padding-top:24px;margin-top:24px;" id="proformaActions">
-        <button class="btn btn-secondary" id="pfDownload"><i data-lucide="printer"></i> PDF Olarak İndir</button>
-        <p style="margin-top:16px;font-size:0.75rem;color:var(--slate-400);">Bu belge bilgi amaçlı proforma faturadır, mali değeri yoktur.</p>
+      <p style="text-align:center;margin-top:24px;font-size:0.75rem;color:var(--slate-400);">
+        Bu belge bilgi amaçlı proforma faturadır, mali değeri yoktur.
+      </p>
+    </div>
+  `;
+}
+
+/** A4 genişliği, 96 dpi. PDF her zaman bu ölçüde üretilir. */
+const A4_WIDTH_PX = 794;
+
+/** Ekranda önizleme çizer ve indirme düğmesini bağlar. */
+function showPrintable(host, proformaId) {
+  const proforma = DB.proformas.getById(proformaId);
+  if (!proforma || !host) return;
+
+  host.innerHTML = html`
+    <div class="card" style="padding:48px;margin-top:24px;">
+      ${raw(invoiceMarkup(proforma))}
+      <div style="text-align:center;border-top:1px solid var(--slate-200);padding-top:24px;margin-top:24px;">
+        <button class="btn btn-secondary" data-download><i data-lucide="printer"></i> PDF Olarak İndir</button>
       </div>
     </div>
   `;
 
   refreshIcons(host);
-  host.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  host.scrollIntoView({ block: 'start' });
 
-  host.querySelector('#pfDownload').addEventListener('click', () => {
-    const element = host.querySelector('#proformaDocument');
-    const actions = host.querySelector('#proformaActions');
+  host.querySelector('[data-download]').addEventListener('click', (event) => {
+    downloadInvoicePdf(proforma, event.currentTarget);
+  });
+}
 
-    if (typeof html2pdf === 'undefined') {
-      showToast('PDF motoru yüklenemedi. Sayfayı yenileyin.', 'error');
-      return;
-    }
+/**
+ * PDF'i ekrandaki önizlemeden değil, ekran dışına yerleştirilen sabit
+ * genişlikte ayrı bir kopyadan üretir.
+ *
+ * Canlı DOM'u yakalamak üç soruna yol açıyordu: html2canvas sayfa kaydırma
+ * konumunu hesaba katmadığı için belge sayfanın ortasından başlayıp alttan
+ * kesiliyordu; çıktı genişliği tarayıcı penceresine göre değiştiği için dar
+ * pencerede fatura taşıyordu; kartın gölgesi ve giriş animasyonu görüntüye
+ * karışıyordu.
+ */
+async function downloadInvoicePdf(proforma, button) {
+  if (typeof html2pdf === 'undefined') {
+    showToast('PDF motoru yüklenemedi. Sayfayı yenileyin.', 'error');
+    return;
+  }
 
-    actions.style.display = 'none';
-    html2pdf()
+  const stage = document.createElement('div');
+  stage.setAttribute('aria-hidden', 'true');
+  stage.style.cssText = `
+    position:fixed; top:0; left:-10000px;
+    width:${A4_WIDTH_PX}px; padding:40px;
+    background:#ffffff; color:#1e293b;
+    font-family:var(--font-family); line-height:1.5;
+  `;
+  stage.innerHTML = invoiceMarkup(proforma);
+  document.body.appendChild(stage);
+
+  const originalLabel = button.innerHTML;
+  button.disabled = true;
+  button.textContent = 'PDF hazırlanıyor...';
+
+  try {
+    // Yazı tipleri yüklenmeden yakalanırsa metin yanlış ölçüde çizilir.
+    if (document.fonts?.ready) await document.fonts.ready;
+
+    await html2pdf()
       .set({
-        margin: 10,
+        margin: 0,
         filename: `proforma_${(proforma.invoiceNo ?? 'belge').replace(/\s+/g, '_')}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff',
+          // Ekran dışı sahne sayfa kaydırmasından etkilenmemeli.
+          scrollX: 0,
+          scrollY: 0,
+          windowWidth: A4_WIDTH_PX,
+        },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        // Uzun faturalar bölünebilsin ama satırlar ve toplam bloğu kesilmesin.
+        pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.pf-block'] },
       })
-      .from(element)
-      .save()
-      .then(() => showToast('Proforma indirildi.'))
-      .catch((error) => {
-        console.error('[proforma] PDF hatası:', error);
-        showToast('PDF oluşturulurken hata oluştu.', 'error');
-      })
-      .finally(() => { actions.style.display = 'block'; });
-  });
+      .from(stage)
+      .save();
+
+    showToast('Proforma indirildi.');
+  } catch (error) {
+    console.error('[proforma] PDF hatası:', error);
+    showToast('PDF oluşturulurken hata oluştu.', 'error');
+  } finally {
+    stage.remove();
+    button.disabled = false;
+    button.innerHTML = originalLabel;
+    refreshIcons(button);
+  }
 }
