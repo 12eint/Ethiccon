@@ -1,11 +1,15 @@
 /**
- * Reusable data table component with search, filters, pagination, and sorting.
+ * Arama, filtre, sıralama ve sayfalama içeren yeniden kullanılabilir tablo.
+ *
+ * NOT: col.render veren sütunlarda kaçışlama bileşenin sorumluluğunda
+ * değildir — özel render HTML döndürmek içindir. Kullanıcı verisi basan
+ * render fonksiyonları core/ui.js'teki escapeHtml'i kendisi uygulamalıdır.
  */
+import { escapeHtml, refreshIcons } from '../core/ui.js';
 
 /**
- * Create and render a data table.
- * @param {HTMLElement} container - Element to render into
- * @param {object} options - Table configuration
+ * @param {HTMLElement} container
+ * @param {object} options
  */
 export function createTable(container, options) {
     const {
@@ -230,11 +234,7 @@ export function createTable(container, options) {
         `;
 
         attachListeners();
-
-        // Process icons
-        if (typeof lucide !== 'undefined' && lucide.createIcons) {
-            lucide.createIcons();
-        }
+        refreshIcons(container);
     }
 
     /**
@@ -339,13 +339,4 @@ export function createTable(container, options) {
 
     // Initial render
     render();
-}
-
-/**
- * Escape HTML to prevent XSS.
- */
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
 }

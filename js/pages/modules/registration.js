@@ -1,691 +1,530 @@
-import { DB } from '../../db.js';
+/**
+ * Kayıt (misafir) yönetimi.
+ *
+ * Bu modül daha önce hiçbir yerden import edilmiyordu; bütçe ve proforma
+ * hesaplarının dayandığı alanları (regPeriod, accommodation, roomType…)
+ * yazan tek yer olduğu için sistemin gelir tarafı boş çalışıyordu.
+ */
+import { DB } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
-import { initSearchableSelects } from '../../app.js';
+import { formatAmount } from '../../core/format.js';
+import { html, raw, showToast, refreshIcons, initSearchableSelects } from '../../core/ui.js';
+import { getCurrentUser, isAdmin, hasPermission } from '../../core/auth.js';
+import { registrationPrice, ROOM_TYPES, ROOM_TYPE_LABELS } from '../../core/pricing.js';
 
-export function renderRegistrationModule(container, orgId) {
-    const participants = DB.participants.getByEventId(orgId);
-    const currentUser = DB.users.getCurrentUser();
-    const isAdmin = currentUser?.role === 'admin';
-    const perms = currentUser?.permissions || (isAdmin ? ['all'] : []);
-    const hasPerm = (p) => perms.includes('all') || perms.includes(p);
+const DRAFT_KEY = 'ethiccon_draft_registration';
 
-    const event = DB.events.getById(orgId) || {};
-    
-    const earlyPrice = Number(event.earlyRegPrice) || 0;
-    const latePrice = Number(event.lateRegPrice) || 0;
+const PERIOD_BADGES = {
+  early: '<span class="badge badge-success">Erken Kayıt</span>',
+  late: '<span class="badge badge-warning">Geç Kayıt</span>',
+  custom: '<span class="badge badge-purple">Özel Fiyat</span>',
+};
 
-    let totalRegProfit = 0;
-    if (isAdmin) {
-        participants.forEach(p => {
-            const price = p.regPeriod === 'custom' ? Number(p.regCustomPrice || 0) : (p.regPeriod === 'late' ? latePrice : earlyPrice);
-            totalRegProfit += price;
-        });
-    }
+/** Excel şablonundaki sütun başlıkları ile katılımcı alanlarının eşlemesi. */
+const EXCEL_COLUMNS = {
+  'YETKİLİ': 'authorizedPerson',
+  'FİRMA': 'company',
+  'İSİM': 'firstName',
+  'SOYAD': 'lastName',
+  'MAİL ADRESİ': 'email',
+  'TELEFON': 'phone',
+  'DOĞUM T.': 'birthDate',
+  'TC NO': 'tcNo',
+  'PASAPORT NO': 'passportNo',
+  'GEÇERLİLİK TARİHİ': 'passportExpiry',
+  'KALKIŞ ŞEHRİ': 'depCity',
+};
 
-    // Build price warning HTML
-    const priceWarningHTML = (earlyPrice === 0 && latePrice === 0) ? `
-            <div id="priceWarningBanner" style="background: var(--warning-light); border: 1px solid var(--warning); border-radius: var(--radius-md); padding: 12px 16px; margin: 16px 0; display: flex; align-items: center; gap: 8px; font-size: 0.875rem; color: #92400e;">
-                <i data-lucide="alert-triangle" style="width:18px; height:18px;"></i>
-                <span>⚠ Bu organizasyonun erken/geç kayıt fiyatı henüz belirlenmemiş. Lütfen organizasyon ayarlarından fiyatlandırmayı yapınız.</span>
-            </div>` : '';
+export function renderRegistrationModule(container, eventId, onChange) {
+  const refresh = () => (onChange ? onChange() : renderRegistrationModule(container, eventId));
 
-    // Build company list for filter dropdown
-    const companySet = new Set();
-    participants.forEach(p => { if (p.company) companySet.add(p.company); });
-    const companyFilterOptions = Array.from(companySet).sort().map(c => `<option value="${c}">${c}</option>`).join('');
+  const admin = isAdmin();
+  const event = DB.events.getById(eventId) ?? {};
+  const participants = DB.participants.getByEventId(eventId);
+  const canDelete = hasPermission('delete_pax');
+  const canExport = hasPermission('export_excel');
 
-    container.innerHTML = `
-        <div class="card" style="animation: slideInRight 0.3s ease;">
-            <div class="card-header" style="flex-wrap: wrap; gap: 12px;">
-                <h3 class="card-title">Kayıt (Misafir) Yönetimi</h3>
-                <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                    <button class="btn btn-secondary" id="btnDownloadTemplate">
-                        <i data-lucide="download"></i> Excel Şablonu İndir
-                    </button>
-                    <label class="btn btn-secondary" style="cursor: pointer; margin: 0;">
-                        <i data-lucide="upload"></i> Excel'den Yükle
-                        <input type="file" id="fileUploadExcel" accept=".xlsx, .xls" style="display: none;">
-                    </label>
-                    <button class="btn btn-primary" id="btnManuelKayit">
-                        <i data-lucide="user-plus"></i> Manuel Kayıt Ekle
-                    </button>
-                    <button class="btn btn-secondary btn-sm" id="btnExportRooming">
-                        <i data-lucide="building"></i> Rooming List (Oda)
-                    </button>
-                    ${hasPerm('export_excel') ? `<button class="btn btn-secondary btn-sm" id="btnExportExcel">
-                        <i data-lucide="file-down"></i> Excel'e Aktar
-                    </button>` : ''}
-                </div>
-            </div>
-            ${priceWarningHTML}
-            <div id="regSearchToolbar" style="display: flex; gap: 12px; align-items: center; padding: 0 20px; margin-bottom: 12px; flex-wrap: wrap;">
-                <div style="position: relative; flex: 1; min-width: 200px;">
-                    <i data-lucide="search" style="width:15px;height:15px;opacity:0.4;position:absolute;left:10px;top:50%;transform:translateY(-50%);pointer-events:none;"></i>
-                    <input type="text" id="regSearchInput" class="form-input" placeholder="İsim, soyisim, e-posta veya telefon ile ara..." style="padding-left:34px; height:36px; font-size:0.85rem;">
-                </div>
-                <select id="regCompanyFilter" class="form-select searchable-select" style="height:36px; font-size:0.85rem; min-width:160px; width:auto;">
-                    <option value="">Tüm Firmalar</option>
-                    ${companyFilterOptions}
-                </select>
-            </div>
-            <div class="table-container">
-                <div style="overflow-x: auto;">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Yetkili</th>
-                                <th>Firma</th>
-                                <th>İsim Soyisim</th>
-                                <th>İletişim</th>
-                                <th>TC / Pasaport</th>
-                                <th>Kalkış Şehri</th>
-                                <th>Kayıt Tipi / Satış</th>
-                                <th>İşlemi Yapan</th>
-                                <th>İşlemler</th>
-                            </tr>
-                        </thead>
-                        <tbody id="regTableBody">
-                            ${participants.length === 0 ? `
-                                <tr><td colspan="9" style="text-align: center; padding: 24px;">Kayıtlı misafir bulunmuyor.</td></tr>
-                            ` : participants.map(p => {
-                                const price = p.regPeriod === 'custom' ? Number(p.regCustomPrice || 0) : (p.regPeriod === 'late' ? latePrice : earlyPrice);
-                                let periodLabel = '';
-                                if (p.regPeriod === 'custom') periodLabel = '<span class="badge badge-purple">Özel Fiyat</span>';
-                                else if (p.regPeriod === 'late') periodLabel = '<span class="badge badge-warning">Geç Kayıt</span>';
-                                else periodLabel = '<span class="badge badge-success">Erken Kayıt</span>';
-                                
-                                const financeHTML = isAdmin 
-                                    ? `<div style="margin-bottom:4px;">${periodLabel}</div>
-                                       <div style="color: var(--success); font-weight: 600;">${price}₺</div>`
-                                    : `<div style="margin-bottom:4px;">${periodLabel}</div>`;
+  const pricesUnset = !Number(event.earlyRegPrice) && !Number(event.lateRegPrice);
+  const companies = [...new Set(participants.map((p) => p.company).filter(Boolean))].sort();
 
-                                return `
-                                <tr data-search-name="${(p.firstName || '').toLowerCase()} ${(p.lastName || '').toLowerCase()}" data-search-email="${(p.email || '').toLowerCase()}" data-search-phone="${(p.phone || '').toLowerCase()}" data-search-company="${(p.company || '').toLowerCase()}">
-                                    <td>${p.authorizedPerson || '-'}</td>
-                                    <td>${p.company || '-'}</td>
-                                    <td><strong>${p.firstName} ${p.lastName}</strong></td>
-                                    <td>
-                                        <div style="font-size: 0.75rem;">
-                                            <div><i data-lucide="phone" style="width:12px; height:12px;"></i> ${p.phone || '-'}</div>
-                                            <div><i data-lucide="mail" style="width:12px; height:12px;"></i> ${p.email || '-'}</div>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <div style="font-size: 0.75rem;">
-                                            <div>TC: ${p.tcNo || '-'}</div>
-                                            <div>Pass: ${p.passportNo || '-'}</div>
-                                        </div>
-                                    </td>
-                                    <td>${p.depCity || '-'}</td>
-                                    <td>${financeHTML}</td>
-                                    <td style="font-size: 0.75rem; color: var(--slate-500);"><i data-lucide="user" style="width:12px; height:12px;"></i> ${p.createdBy || '-'}</td>
-                                    <td>
-                                        <button class="btn btn-ghost btn-icon btn-edit-reg" data-id="${p.id}" title="Düzenle"><i data-lucide="edit"></i></button>
-                                        ${hasPerm('delete_pax') ? `<button class="btn btn-ghost btn-icon btn-delete-reg" data-id="${p.id}" title="Sil" style="color:var(--danger);"><i data-lucide="trash-2"></i></button>` : ''}
-                                    </td>
-                                </tr>
-                                `;
-                            }).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            </div>
+  container.innerHTML = html`
+    <div class="page-header" style="flex-wrap:wrap;gap:12px;">
+      <h2>Kayıt (Misafir) Yönetimi</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-secondary btn-sm" data-action="template">
+          <i data-lucide="download"></i> Excel Şablonu
+        </button>
+        <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0;">
+          <i data-lucide="upload"></i> Excel'den Yükle
+          <input type="file" data-action="import" accept=".xlsx,.xls" hidden>
+        </label>
+        <button class="btn btn-secondary btn-sm" data-action="rooming">
+          <i data-lucide="building"></i> Rooming List
+        </button>
+        ${canExport ? raw('<button class="btn btn-secondary btn-sm" data-action="export"><i data-lucide="file-down"></i> Excel\'e Aktar</button>') : ''}
+        <button class="btn btn-primary btn-sm" data-action="add">
+          <i data-lucide="user-plus"></i> Manuel Kayıt
+        </button>
+      </div>
+    </div>
+
+    ${pricesUnset ? raw(html`
+      <div style="background:var(--warning-light);border:1px solid var(--warning);border-radius:var(--radius-md);padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:8px;font-size:0.875rem;color:#92400e;">
+        <i data-lucide="alert-triangle" style="width:18px;height:18px;flex-shrink:0;"></i>
+        <span>Bu organizasyonun erken/geç kayıt fiyatı belirlenmemiş. Etkinlikler sayfasından düzenleyerek fiyatlandırma yapın; aksi halde kayıt geliri sıfır görünür.</span>
+      </div>
+    `) : ''}
+
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+      <div style="position:relative;flex:1;min-width:220px;">
+        <i data-lucide="search" style="width:15px;height:15px;opacity:0.4;position:absolute;left:10px;top:50%;transform:translateY(-50%);pointer-events:none;"></i>
+        <input type="text" id="regSearch" class="form-input" placeholder="İsim, e-posta veya telefon ara..." style="padding-left:34px;height:36px;font-size:0.85rem;">
+      </div>
+      <select id="regCompanyFilter" class="form-select" style="height:36px;font-size:0.85rem;min-width:180px;width:auto;">
+        <option value="">Tüm Firmalar</option>
+        ${companies.map((name) => raw(html`<option value="${name}">${name}</option>`))}
+      </select>
+    </div>
+
+    <div class="table-container">
+      <div style="overflow-x:auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Yetkili</th><th>Firma</th><th>İsim Soyisim</th><th>İletişim</th>
+              <th>TC / Pasaport</th><th>Kalkış</th><th>Kayıt Tipi</th>
+              <th>Konaklama</th><th>İşlemi Yapan</th><th style="text-align:right;">İşlem</th>
+            </tr>
+          </thead>
+          <tbody id="regRows">
+            ${participants.length === 0
+              ? raw('<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--slate-400);">Kayıtlı misafir bulunmuyor.</td></tr>')
+              : participants.map((pax) => raw(participantRow(pax, event, admin, canDelete)))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  wireFilters(container, participants);
+  wireActions(container, { eventId, event, participants, refresh });
+  refreshIcons(container);
+}
+
+function participantRow(pax, event, admin, canDelete) {
+  const price = registrationPrice(pax, event);
+  const searchIndex = [pax.firstName, pax.lastName, pax.email, pax.phone]
+    .filter(Boolean).join(' ').toLowerCase();
+
+  return html`
+    <tr data-search="${searchIndex}" data-company="${(pax.company ?? '').toLowerCase()}">
+      <td>${pax.authorizedPerson || '-'}</td>
+      <td>${pax.company || '-'}</td>
+      <td><strong>${pax.firstName} ${pax.lastName}</strong></td>
+      <td>
+        <div style="font-size:0.75rem;">
+          <div>${pax.phone || '-'}</div>
+          <div style="color:var(--slate-500);">${pax.email || '-'}</div>
         </div>
-    `;
+      </td>
+      <td>
+        <div style="font-size:0.75rem;">
+          <div>TC: ${pax.tcNo || '-'}</div>
+          <div style="color:var(--slate-500);">Pas: ${pax.passportNo || '-'}</div>
+        </div>
+      </td>
+      <td>${pax.depCity || '-'}</td>
+      <td>
+        <div style="margin-bottom:4px;">${raw(PERIOD_BADGES[pax.regPeriod] ?? PERIOD_BADGES.early)}</div>
+        ${admin ? raw(html`<div style="color:var(--success);font-weight:600;font-size:0.8rem;">${formatAmount(price)}</div>`) : ''}
+      </td>
+      <td>
+        ${pax.accommodation
+          ? raw(html`<span class="badge badge-info">${pax.roomType || 'Oda?'}</span>`)
+          : raw('<span style="color:var(--slate-400);">-</span>')}
+      </td>
+      <td style="font-size:0.75rem;color:var(--slate-500);">${pax.createdBy || '-'}</td>
+      <td style="text-align:right;">
+        <div class="action-btns" style="justify-content:flex-end;">
+          <button class="action-btn edit" data-edit="${pax.id}" title="Düzenle"><i data-lucide="pencil"></i></button>
+          ${canDelete ? raw(html`<button class="action-btn delete" data-delete="${pax.id}" title="Sil"><i data-lucide="trash-2"></i></button>`) : ''}
+        </div>
+      </td>
+    </tr>
+  `;
+}
 
-    initSearchableSelects(container);
+function wireFilters(container) {
+  const search = container.querySelector('#regSearch');
+  const companyFilter = container.querySelector('#regCompanyFilter');
 
-    // Registration search & filter logic
-    const regSearchInput = container.querySelector('#regSearchInput');
-    const regCompanyFilter = container.querySelector('#regCompanyFilter');
+  const apply = () => {
+    const query = search.value.trim().toLowerCase();
+    const company = companyFilter.value.toLowerCase();
+    container.querySelectorAll('#regRows tr[data-search]').forEach((row) => {
+      const matchesQuery = !query || row.dataset.search.includes(query);
+      const matchesCompany = !company || row.dataset.company === company;
+      row.style.display = matchesQuery && matchesCompany ? '' : 'none';
+    });
+  };
 
-    function filterRegTable() {
-        const query = (regSearchInput.value || '').trim().toLowerCase();
-        const company = (regCompanyFilter.value || '').toLowerCase();
-        const rows = container.querySelectorAll('#regTableBody tr[data-search-name]');
-        rows.forEach(row => {
-            const name = row.dataset.searchName || '';
-            const email = row.dataset.searchEmail || '';
-            const phone = row.dataset.searchPhone || '';
-            const comp = row.dataset.searchCompany || '';
+  search.addEventListener('input', apply);
+  companyFilter.addEventListener('change', apply);
+}
 
-            const matchesSearch = !query || name.includes(query) || email.includes(query) || phone.includes(query);
-            const matchesCompany = !company || comp === company;
+function wireActions(container, ctx) {
+  const { eventId, event, participants, refresh } = ctx;
 
-            row.style.display = (matchesSearch && matchesCompany) ? '' : 'none';
-        });
+  // Butonların bir kısmı yetkiye bağlı render edildiği için tek tek
+  // querySelector yerine delegasyon kullanıyoruz; eksik buton hata vermez.
+  container.addEventListener('click', (clickEvent) => {
+    const action = clickEvent.target.closest('[data-action]')?.dataset.action;
+
+    if (action === 'template') return downloadTemplate();
+    if (action === 'export') return exportParticipants(event, participants);
+    if (action === 'rooming') return exportRoomingList(event, participants);
+    if (action === 'add') return openParticipantModal({ eventId, participant: null, onDone: refresh });
+
+    const editId = clickEvent.target.closest('[data-edit]')?.dataset.edit;
+    if (editId) {
+      return openParticipantModal({
+        eventId,
+        participant: DB.participants.getById(editId),
+        onDone: refresh,
+      });
     }
 
-    regSearchInput.addEventListener('input', filterRegTable);
-    regCompanyFilter.addEventListener('change', filterRegTable);
+    const deleteId = clickEvent.target.closest('[data-delete]')?.dataset.delete;
+    if (!deleteId) return;
+    const pax = DB.participants.getById(deleteId);
+    if (!pax) return;
+    if (!window.confirm(`"${pax.firstName} ${pax.lastName}" ve bağlı uçuş kayıtları silinecek. Emin misiniz?`)) return;
+    DB.participants.delete(deleteId);
+    DB.logs.add(`Misafir silindi: ${pax.firstName} ${pax.lastName}`, 'warning');
+    showToast('Misafir silindi.');
+    refresh();
+  });
 
-    // Download Template
-    container.querySelector('#btnDownloadTemplate').addEventListener('click', () => {
-        const wb = XLSX.utils.book_new();
-        const wsData = [
-            ['YETKİLİ', 'FİRMA', 'İSİM', 'SOYAD', 'MAİL ADRESİ', 'TELEFON', 'DOĞUM T.', 'TC NO', 'PASAPORT NO', 'GEÇERLİLİK TARİHİ', 'KALKIŞ ŞEHRİ']
-        ];
-        const ws = XLSX.utils.aoa_to_sheet(wsData);
-        XLSX.utils.book_append_sheet(wb, ws, "Kayıtlar");
-        XLSX.writeFile(wb, "kayit_sablonu.xlsx");
-    });
+  container.querySelector('[data-action="import"]')
+    ?.addEventListener('change', (changeEvent) => importParticipants(changeEvent, eventId, refresh));
+}
 
-    // Excel Upload
-    container.querySelector('#fileUploadExcel').addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        
-        const reader = new FileReader();
-        reader.onload = function(evt) {
-            try {
-                const workbook = XLSX.read(evt.target.result, { type: 'binary' });
-                const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                const data = XLSX.utils.sheet_to_json(sheet);
-                
-                let added = 0;
-                data.forEach(row => {
-                    DB.participants.create({
-                        eventId: orgId,
-                        authorizedPerson: row['YETKİLİ'] || '',
-                        company: row['FİRMA'] || '',
-                        firstName: row['İSİM'] || '',
-                        lastName: row['SOYAD'] || '',
-                        email: row['MAİL ADRESİ'] || '',
-                        phone: row['TELEFON'] || '',
-                        birthDate: row['DOĞUM T.'] || '',
-                        tcNo: row['TC NO'] || '',
-                        passportNo: row['PASAPORT NO'] || '',
-                        passportExpiry: row['GEÇERLİLİK TARİHİ'] || '',
-                        depCity: row['KALKIŞ ŞEHRİ'] || '',
-                        createdBy: currentUser?.name || 'Bilinmiyor'
-                    });
-                    added++;
-                });
-                
-                alert(`${added} adet kayıt başarıyla eklendi!`);
-                // Re-render module
-                renderRegistrationModule(container, orgId);
-                if (typeof lucide !== 'undefined') lucide.createIcons();
-            } catch(err) {
-                console.error(err);
-                alert('Dosya okunurken hata oluştu.');
-            }
-        };
-        reader.readAsBinaryString(file);
-    });
+// ── Excel ────────────────────────────────────────────────────────────────
 
-    // Excel Export
-    container.querySelector('#btnExportExcel').addEventListener('click', () => {
-        const exportParticipants = DB.participants.getByEventId(orgId);
-        if (exportParticipants.length === 0) {
-            const toast = document.createElement('div');
-            toast.className = 'toast toast-error';
-            toast.textContent = 'Dışa aktarılacak kayıt bulunamadı.';
-            document.getElementById('toastContainer').appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
-            return;
+function downloadTemplate() {
+  const workbook = XLSX.utils.book_new();
+  const sheet = XLSX.utils.aoa_to_sheet([Object.keys(EXCEL_COLUMNS)]);
+  XLSX.utils.book_append_sheet(workbook, sheet, 'Kayıtlar');
+  XLSX.writeFile(workbook, 'kayit_sablonu.xlsx');
+}
+
+function importParticipants(changeEvent, eventId, onDone) {
+  const file = changeEvent.target.files?.[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (loadEvent) => {
+    try {
+      const workbook = XLSX.read(loadEvent.target.result, { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet);
+      const createdBy = getCurrentUser()?.name ?? 'Bilinmiyor';
+
+      let added = 0;
+      let skipped = 0;
+
+      rows.forEach((row) => {
+        const record = { eventId, regPeriod: 'early', accommodation: false, createdBy };
+        Object.entries(EXCEL_COLUMNS).forEach(([header, field]) => {
+          record[field] = row[header] != null ? String(row[header]).trim() : '';
+        });
+
+        // Ad veya soyadı olmayan satır kayıt sayılmaz.
+        if (!record.firstName && !record.lastName) {
+          skipped += 1;
+          return;
         }
+        DB.participants.create(record);
+        added += 1;
+      });
 
-        const headers = ['Yetkili', 'Firma', 'İsim', 'Soyisim', 'E-posta', 'Telefon', 'TC No', 'Pasaport No', 'Kalkış Şehri', 'Kayıt Dönemi', 'Fiyat', 'İşlemi Yapan'];
-        const rows = exportParticipants.map(p => {
-            let periodLabel = p.regPeriod === 'custom' ? 'Özel Fiyat' : (p.regPeriod === 'late' ? 'Geç Kayıt' : 'Erken Kayıt');
-            const price = p.regPeriod === 'custom' ? Number(p.regCustomPrice || 0) : (p.regPeriod === 'late' ? latePrice : earlyPrice);
-            return [
-                p.authorizedPerson || '',
-                p.company || '',
-                p.firstName || '',
-                p.lastName || '',
-                p.email || '',
-                p.phone || '',
-                p.tcNo || '',
-                p.passportNo || '',
-                p.depCity || '',
-                periodLabel,
-                price,
-                p.createdBy || ''
-            ];
+      DB.logs.add(`Excel'den ${added} misafir kaydı içe aktarıldı.`, 'success');
+      showToast(
+        skipped > 0 ? `${added} kayıt eklendi, ${skipped} boş satır atlandı.` : `${added} kayıt eklendi.`,
+      );
+      onDone();
+    } catch (error) {
+      console.error('[registration] Excel okunamadı:', error);
+      showToast('Dosya okunamadı. Şablona uygun olduğundan emin olun.', 'error');
+    } finally {
+      changeEvent.target.value = '';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function exportParticipants(event, participants) {
+  if (participants.length === 0) {
+    showToast('Dışa aktarılacak kayıt bulunamadı.', 'error');
+    return;
+  }
+
+  const rows = participants.map((pax) => ({
+    'Yetkili': pax.authorizedPerson ?? '',
+    'Firma': pax.company ?? '',
+    'İsim': pax.firstName ?? '',
+    'Soyisim': pax.lastName ?? '',
+    'E-posta': pax.email ?? '',
+    'Telefon': pax.phone ?? '',
+    'TC No': pax.tcNo ?? '',
+    'Pasaport No': pax.passportNo ?? '',
+    'Kalkış Şehri': pax.depCity ?? '',
+    'Kayıt Dönemi': { late: 'Geç Kayıt', custom: 'Özel Fiyat' }[pax.regPeriod] ?? 'Erken Kayıt',
+    'Fiyat': registrationPrice(pax, event),
+    'Konaklama': pax.accommodation ? (pax.roomType || 'Var') : 'Yok',
+    'İşlemi Yapan': pax.createdBy ?? '',
+  }));
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'Katılımcılar');
+  XLSX.writeFile(workbook, `${event.name || 'organizasyon'}_katilimcilar.xlsx`);
+  showToast(`${participants.length} katılımcı dışa aktarıldı.`);
+}
+
+/**
+ * Otel için oda listesi.
+ * Önceki sürüm var olmayan bir accommodations.items alanını okumaya
+ * çalıştığı için bu buton her seferinde hata veriyordu; veriler
+ * doğrudan misafir kaydından alınıyor.
+ */
+function exportRoomingList(event, participants) {
+  const guests = participants.filter((pax) => pax.accommodation);
+  if (guests.length === 0) {
+    showToast('Konaklamalı misafir bulunamadı.', 'error');
+    return;
+  }
+
+  const rows = guests
+    .map((guest) => ({
+      'Giriş Tarihi': guest.checkIn ?? '',
+      'Çıkış Tarihi': guest.checkOut ?? '',
+      'Oda Tipi': guest.roomType ?? '',
+      'Ad Soyad': `${guest.firstName ?? ''} ${guest.lastName ?? ''}`.trim(),
+      'Firma': guest.company ?? '',
+      'Telefon': guest.phone ?? '',
+      'TC / Pasaport': guest.tcNo || guest.passportNo || '',
+      'Oda Arkadaşı 1': guest.dblName ?? '',
+      'Oda Arkadaşı 2': guest.trplName ?? '',
+    }))
+    .sort((a, b) =>
+      a['Giriş Tarihi'].localeCompare(b['Giriş Tarihi']) || a['Oda Tipi'].localeCompare(b['Oda Tipi']));
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'Rooming List');
+  XLSX.writeFile(workbook, `${event.name || 'organizasyon'}_rooming_list.xlsx`);
+  showToast(`Rooming list oluşturuldu (${guests.length} oda).`);
+}
+
+// ── Misafir formu ────────────────────────────────────────────────────────
+
+function readDraft() {
+  try {
+    return JSON.parse(localStorage.getItem(DRAFT_KEY)) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function openParticipantModal({ eventId, participant, onDone }) {
+  const isEdit = Boolean(participant);
+  // Taslak yalnızca yeni kayıtta geri yüklenir; düzenlemede mevcut veri esastır.
+  const data = isEdit ? participant : readDraft();
+  const companyNames = DB.companies.getAll().map((c) => c.name);
+
+  openModal({
+    title: isEdit ? 'Misafir Düzenle' : 'Manuel Kayıt Ekle',
+    width: '640px',
+    saveText: isEdit ? 'Güncelle' : 'Kaydet',
+    content: html`
+      <form id="paxForm">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Yetkili</label>
+            <input type="text" class="form-input" name="authorizedPerson" value="${data.authorizedPerson ?? ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Firma</label>
+            <select class="form-select searchable-select" name="company">
+              <option value="">Seçiniz...</option>
+              ${companyNames.map((name) => raw(html`
+                <option value="${name}" ${data.company === name ? raw('selected') : ''}>${name}</option>
+              `))}
+              <option value="Bireysel" ${data.company === 'Bireysel' ? raw('selected') : ''}>Bireysel / Diğer</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">İsim *</label>
+            <input type="text" class="form-input" name="firstName" value="${data.firstName ?? ''}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Soyad *</label>
+            <input type="text" class="form-input" name="lastName" value="${data.lastName ?? ''}" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Telefon *</label>
+            <input type="text" class="form-input mask-phone" name="phone" value="${data.phone ?? ''}" placeholder="05XX XXX XX XX" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">E-posta</label>
+            <input type="email" class="form-input" name="email" value="${data.email ?? ''}">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Doğum Tarihi</label>
+            <input type="date" class="form-input" name="birthDate" value="${data.birthDate ?? ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Kalkış Şehri</label>
+            <input type="text" class="form-input" name="depCity" value="${data.depCity ?? ''}">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">TC Kimlik No</label>
+            <input type="text" class="form-input mask-tc" name="tcNo" value="${data.tcNo ?? ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Pasaport No</label>
+            <input type="text" class="form-input" name="passportNo" value="${data.passportNo ?? ''}">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Kayıt Dönemi</label>
+            <select class="form-select" name="regPeriod" id="paxPeriod">
+              <option value="early" ${data.regPeriod === 'early' ? raw('selected') : ''}>Erken Kayıt</option>
+              <option value="late" ${data.regPeriod === 'late' ? raw('selected') : ''}>Geç Kayıt</option>
+              <option value="custom" ${data.regPeriod === 'custom' ? raw('selected') : ''}>Özel Fiyat</option>
+            </select>
+          </div>
+          <div class="form-group" id="paxCustomPrice" style="display:${data.regPeriod === 'custom' ? 'block' : 'none'};">
+            <label class="form-label">Özel Fiyat (₺)</label>
+            <input type="number" class="form-input" name="regCustomPrice" value="${data.regCustomPrice ?? 0}" min="0" step="0.01">
+          </div>
+        </div>
+
+        <div style="border-top:1px solid var(--slate-100);margin-top:8px;padding-top:16px;">
+          <label class="form-checkbox" style="margin-bottom:12px;">
+            <input type="checkbox" name="accommodation" id="paxAccommodation" ${data.accommodation ? raw('checked') : ''}>
+            <span>Konaklama var</span>
+          </label>
+          <div class="form-row" id="paxAccFields" style="display:${data.accommodation ? 'flex' : 'none'};">
+            <div class="form-group">
+              <label class="form-label">Oda Tipi</label>
+              <select class="form-select" name="roomType">
+                ${ROOM_TYPES.map((type) => raw(html`
+                  <option value="${type}" ${data.roomType === type ? raw('selected') : ''}>${ROOM_TYPE_LABELS[type]}</option>
+                `))}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Konaklama Özel Fiyatı (₺)</label>
+              <input type="number" class="form-input" name="accSellPrice" value="${data.accSellPrice ?? ''}" min="0" step="0.01" placeholder="Boş = liste fiyatı">
+            </div>
+          </div>
+        </div>
+      </form>
+    `,
+    onSave: () => {
+      const form = document.getElementById('paxForm');
+      const values = Object.fromEntries(new FormData(form).entries());
+      const errors = validateParticipant(values);
+
+      form.querySelectorAll('.form-input').forEach((input) => { input.style.borderColor = ''; });
+      if (errors.length > 0) {
+        errors.forEach(({ field }) => {
+          const input = form.querySelector(`[name="${field}"]`);
+          if (input) input.style.borderColor = 'var(--danger)';
         });
+        showToast(errors[0].message, 'error');
+        return;
+      }
 
-        const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Katılımcılar");
-        
-        const eventName = event.name || 'organizasyon';
-        XLSX.writeFile(wb, `${eventName}_katilimcilar.xlsx`);
+      const accommodation = form.querySelector('#paxAccommodation').checked;
+      const payload = {
+        ...values,
+        eventId,
+        accommodation,
+        roomType: accommodation ? values.roomType : '',
+        accSellPrice: accommodation && values.accSellPrice !== '' ? Number(values.accSellPrice) : '',
+        regCustomPrice: values.regPeriod === 'custom' ? Number(values.regCustomPrice) || 0 : 0,
+      };
 
-        const toast = document.createElement('div');
-        toast.className = 'toast toast-success';
-        toast.textContent = `${exportParticipants.length} katılımcı başarıyla dışa aktarıldı.`;
-        document.getElementById('toastContainer').appendChild(toast);
-        setTimeout(() => toast.remove(), 3000);
+      if (isEdit) {
+        DB.participants.update(participant.id, payload);
+        showToast('Misafir güncellendi.');
+      } else {
+        DB.participants.create({ ...payload, createdBy: getCurrentUser()?.name ?? 'Bilinmiyor' });
+        DB.logs.add(`Yeni misafir eklendi: ${payload.firstName} ${payload.lastName}`, 'success');
+        showToast('Kayıt eklendi.');
+      }
+
+      localStorage.removeItem(DRAFT_KEY);
+      closeModal();
+      onDone();
+    },
+  });
+
+  const form = document.getElementById('paxForm');
+  const periodSelect = form.querySelector('#paxPeriod');
+  const customPriceGroup = form.querySelector('#paxCustomPrice');
+  const accCheckbox = form.querySelector('#paxAccommodation');
+  const accFields = form.querySelector('#paxAccFields');
+
+  periodSelect.addEventListener('change', () => {
+    customPriceGroup.style.display = periodSelect.value === 'custom' ? 'block' : 'none';
+  });
+  accCheckbox.addEventListener('change', () => {
+    accFields.style.display = accCheckbox.checked ? 'flex' : 'none';
+  });
+
+  // Yeni kayıtta form taslağı saklanır; modal kazara kapanırsa veri kaybolmaz.
+  if (!isEdit) {
+    form.addEventListener('input', () => {
+      const draft = Object.fromEntries(new FormData(form).entries());
+      draft.accommodation = accCheckbox.checked;
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     });
+  }
 
-    // Rooming List Export
-    container.querySelector('#btnExportRooming')?.addEventListener('click', () => {
-        const pList = DB.participants.getByEventId(orgId).filter(p => p.accommodation); // Only those with accommodation
-        const accs = DB.accommodations.getByEventId(orgId);
-        
-        if (pList.length === 0) {
-            alert('Konaklamalı misafir bulunamadı.');
-            return;
-        }
+  initSearchableSelects(form);
+}
 
-        const headers = ['Giriş Tarihi', 'Çıkış Tarihi', 'Oda Tipi', 'Ad Soyad', 'Firma', 'Telefon', 'TC/Pass', 'Notlar'];
-        const rows = pList.map(p => {
-            const match = accs ? accs.items.find(a => a.participantId === p.id) : null;
-            // Default to values in p object if not in accs (from old implementation)
-            const cIn = match ? match.checkIn : p.checkIn;
-            const cOut = match ? match.checkOut : p.checkOut;
-            const rType = match ? match.roomType : p.roomType;
-            return [
-                cIn ? new Date(cIn).toLocaleDateString('tr-TR') : '-',
-                cOut ? new Date(cOut).toLocaleDateString('tr-TR') : '-',
-                rType || '-',
-                `${p.firstName} ${p.lastName}`,
-                p.company || '-',
-                p.phone || '-',
-                p.tc || p.pass || '-',
-                ''
-            ];
-        });
+/** @returns {Array<{field: string, message: string}>} */
+function validateParticipant(values) {
+  const errors = [];
+  if (!values.firstName?.trim()) errors.push({ field: 'firstName', message: 'İsim zorunludur.' });
+  if (!values.lastName?.trim()) errors.push({ field: 'lastName', message: 'Soyad zorunludur.' });
 
-        // Sort by Check-in Date, then Room Type
-        rows.sort((a,b) => {
-            if(a[0] !== b[0]) return a[0].localeCompare(b[0]);
-            return a[2].localeCompare(b[2]);
-        });
+  const phoneDigits = (values.phone ?? '').replace(/\D/g, '');
+  if (!phoneDigits) errors.push({ field: 'phone', message: 'Telefon zorunludur.' });
+  else if (phoneDigits.length !== 11) errors.push({ field: 'phone', message: 'Telefon 11 hane olmalıdır (05XX XXX XX XX).' });
 
-        const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Rooming List");
-        
-        const eventName = event.name || 'organizasyon';
-        XLSX.writeFile(wb, `${eventName}_rooming_list.xlsx`);
-
-        const toast = document.createElement('div');
-        toast.className = 'toast toast-success';
-        toast.textContent = `Rooming list (${pList.length} oda kaydı) başarıyla dışa aktarıldı.`;
-        document.getElementById('toastContainer').appendChild(toast);
-        setTimeout(() => toast.remove(), 3000);
-    });
-
-    // Manual Add Button
-    container.querySelector('#btnManuelKayit').addEventListener('click', () => {
-        const companies = DB.companies.getAll();
-        const companyOptions = companies.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
-
-        let draft = null;
-        try {
-            draft = JSON.parse(localStorage.getItem('ethiccon_draft_registration_manual'));
-        } catch(e) {}
-
-        const formHTML = `
-            <form id="regForm">
-                <div class="form-row">
-                    <div class="form-group"><label class="form-label">Yetkili</label><input type="text" class="form-input" id="regAuth" value="${draft?.auth || ''}"></div>
-                    <div class="form-group">
-                        <label class="form-label">Firma</label>
-                        <select class="form-select searchable-select" id="regCompany">
-                            <option value="">Seçiniz...</option>
-                            ${companyOptions}
-                            <option value="Bireysel" ${draft?.company === 'Bireysel' ? 'selected' : ''}>Bireysel / Diğer</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group"><label class="form-label">İsim*</label><input type="text" class="form-input" id="regFirstName" value="${draft?.firstName || ''}" required></div>
-                    <div class="form-group"><label class="form-label">Soyad*</label><input type="text" class="form-input" id="regLastName" value="${draft?.lastName || ''}" required></div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group"><label class="form-label">Telefon*</label><input type="text" class="form-input mask-phone" id="regPhone" value="${draft?.phone || ''}" required placeholder="05XX XXX XX XX"></div>
-                    <div class="form-group"><label class="form-label">E-posta</label><input type="email" class="form-input" id="regEmail" value="${draft?.email || ''}"></div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group"><label class="form-label">Doğum Tarihi</label><input type="date" class="form-input" id="regBirth" value="${draft?.birth || ''}"></div>
-                    <div class="form-group"><label class="form-label">Kalkış Şehri</label><input type="text" class="form-input" id="regCity" value="${draft?.city || ''}"></div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group"><label class="form-label">TC Kimlik No</label><input type="text" class="form-input mask-tc" id="regTc" value="${draft?.tc || ''}"></div>
-                    <div class="form-group"><label class="form-label">Pasaport No</label><input type="text" class="form-input mask-pass" id="regPass" value="${draft?.pass || ''}"></div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">Kayıt Dönemi</label>
-                        <select class="form-select" id="regPeriod">
-                            <option value="early" ${draft?.period === 'early' ? 'selected' : ''}>Erken Kayıt</option>
-                            <option value="late" ${draft?.period === 'late' ? 'selected' : ''}>Geç Kayıt</option>
-                            <option value="custom" ${draft?.period === 'custom' ? 'selected' : ''}>Özel Fiyat Belirle</option>
-                        </select>
-                    </div>
-                    <div class="form-group" id="regCustomPriceGroup" style="${draft?.period === 'custom' ? 'display: block;' : 'display: none;'}">
-                        <label class="form-label">Özel Fiyat (₺)</label>
-                        <input type="number" class="form-input" id="regCustomPrice" value="${draft?.customPrice || 0}">
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">Otel Seçimi (İsteğe Bağlı)</label>
-                        <select class="form-select" id="regHotel">
-                            <option value="">Konaklama Yok</option>
-                            ${DB.hotels.getByEventId(orgId).map(h => `<option value="${h.id}">${h.name}</option>`).join('')}
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Oda Tipi</label>
-                        <select class="form-select" id="regRoomType" disabled>
-                            <option value="SNG">Tek Kişilik (SNG)</option>
-                            <option value="DBL">Çift Kişilik (DBL)</option>
-                            <option value="TRPL">Üç Kişilik (TRPL)</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="form-row" id="regAccPriceGroup" style="display: none;">
-                    <div class="form-group">
-                        <label class="form-label">Konaklama Özel Fiyatı (₺)</label>
-                        <input type="number" class="form-input" id="regAccPrice" value="0">
-                    </div>
-                </div>
-            </form>
-        `;
-        
-        openModal({
-            title: 'Manuel Kayıt Ekle',
-            content: formHTML,
-            width: '600px',
-            onSave: () => {
-                // Reset borders
-                ['regFirstName', 'regLastName', 'regPhone', 'regTc', 'regEmail'].forEach(id => {
-                    document.getElementById(id).style.borderColor = 'var(--slate-200)';
-                });
-
-                const firstName = document.getElementById('regFirstName').value;
-                const lastName = document.getElementById('regLastName').value;
-                const phone = document.getElementById('regPhone').value;
-                const tcNo = document.getElementById('regTc').value;
-                const email = document.getElementById('regEmail').value;
-                
-                let hasError = false;
-
-                if (!firstName || !lastName || !phone) {
-                    alert('Lütfen zorunlu alanları (*) doldurun.');
-                    if(!firstName) document.getElementById('regFirstName').style.borderColor = 'var(--danger)';
-                    if(!lastName) document.getElementById('regLastName').style.borderColor = 'var(--danger)';
-                    if(!phone) document.getElementById('regPhone').style.borderColor = 'var(--danger)';
-                    hasError = true;
-                }
-                
-                if (tcNo && tcNo.length !== 11) {
-                    alert('Hata: TC Kimlik No tam 11 hane olmalıdır!');
-                    document.getElementById('regTc').style.borderColor = 'var(--danger)';
-                    hasError = true;
-                }
-
-                if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-                    alert('Hata: Geçerli bir e-posta formatı giriniz (örnek@alanadi.com)!');
-                    document.getElementById('regEmail').style.borderColor = 'var(--danger)';
-                    hasError = true;
-                }
-
-                if (phone && phone.length < 10) {
-                    alert('Hata: Telefon numarası çok kısa, kontrol ediniz.');
-                    document.getElementById('regPhone').style.borderColor = 'var(--danger)';
-                    hasError = true;
-                }
-
-                if (hasError) return;
-                
-                const hotelId = document.getElementById('regHotel').value;
-                const roomType = document.getElementById('regRoomType').value;
-                const accPrice = Number(document.getElementById('regAccPrice').value) || 0;
-                
-                if (hotelId) {
-                    const hotel = DB.hotels.getById(hotelId);
-                    if (hotel) {
-                        // Check allotment
-                        const currentGuestsInHotel = DB.participants.getByEventId(orgId).filter(p => p.hotelId === hotelId && p.roomType === roomType);
-                        const limit = hotel.allotment?.[roomType]?.count || 0;
-                        if (currentGuestsInHotel.length >= limit && limit > 0) {
-                            alert(`Hata: ${hotel.name} otelinde ${roomType} kontenjanı dolmuştur! Lütfen kapasiteyi artırın.`);
-                            return;
-                        }
-                    }
-                }
-
-                const newPax = DB.participants.create({
-                    eventId: orgId,
-                    authorizedPerson: document.getElementById('regAuth').value,
-                    company: document.getElementById('regCompany').value,
-                    firstName: firstName,
-                    lastName: lastName,
-                    email: document.getElementById('regEmail').value,
-                    phone: phone,
-                    birthDate: document.getElementById('regBirth').value,
-                    tcNo: document.getElementById('regTc').value,
-                    passportNo: document.getElementById('regPass').value,
-                    depCity: document.getElementById('regCity').value,
-                    regPeriod: document.getElementById('regPeriod').value,
-                    regCustomPrice: Number(document.getElementById('regCustomPrice').value) || 0,
-                    createdBy: currentUser?.name || 'Bilinmiyor',
-                    accommodation: !!hotelId,
-                    hotelId: hotelId || null,
-                    roomType: hotelId ? roomType : null,
-                    accSellPrice: accPrice
-                });
-                
-                if (newPax.regCustomPrice > 0) {
-                    DB.budgetItems.create({
-                        eventId: orgId,
-                        type: 'income',
-                        category: 'Kayıt Geliri',
-                        title: `${firstName} ${lastName} Kayıt Ücreti`,
-                        amount: newPax.regCustomPrice,
-                        date: new Date().toISOString().split('T')[0]
-                    });
-                }
-
-                if (newPax.accSellPrice > 0 && newPax.accommodation) {
-                    DB.budgetItems.create({
-                        eventId: orgId,
-                        type: 'income',
-                        category: 'Konaklama Geliri',
-                        title: `${firstName} ${lastName} Konaklama Ücreti`,
-                        amount: newPax.accSellPrice,
-                        date: new Date().toISOString().split('T')[0]
-                    });
-                }
-                
-                closeModal();
-                DB.logs.add(`Yeni misafir eklendi: ${firstName} ${lastName}`, 'success');
-                localStorage.removeItem('ethiccon_draft_registration_manual');
-                renderRegistrationModule(container, orgId);
-                if (typeof lucide !== 'undefined') lucide.createIcons();
-                
-                const toast = document.createElement('div');
-                toast.className = 'toast toast-success';
-                toast.textContent = 'Kayıt başarıyla eklendi.';
-                document.getElementById('toastContainer').appendChild(toast);
-                setTimeout(() => toast.remove(), 3000);
-            }
-        });
-
-        // Initialize searchable selects after modal opens
-        if(typeof initSearchableSelects === 'function') initSearchableSelects(document.querySelector('.modal-body'));
-
-        // Save draft on input
-        const formEl = document.getElementById('regForm');
-        if (formEl) {
-            formEl.addEventListener('input', () => {
-                const draftData = {
-                    auth: document.getElementById('regAuth').value,
-                    company: document.getElementById('regCompany').value,
-                    firstName: document.getElementById('regFirstName').value,
-                    lastName: document.getElementById('regLastName').value,
-                    phone: document.getElementById('regPhone').value,
-                    email: document.getElementById('regEmail').value,
-                    birth: document.getElementById('regBirth').value,
-                    city: document.getElementById('regCity').value,
-                    tc: document.getElementById('regTc').value,
-                    pass: document.getElementById('regPass').value,
-                    period: document.getElementById('regPeriod').value,
-                    customPrice: document.getElementById('regCustomPrice').value
-                };
-                localStorage.setItem('ethiccon_draft_registration_manual', JSON.stringify(draftData));
-            });
-        }
-
-        // Custom price toggler
-        const periodSel = document.getElementById('regPeriod');
-        const customGroup = document.getElementById('regCustomPriceGroup');
-        periodSel.addEventListener('change', () => {
-            if (periodSel.value === 'custom') {
-                customGroup.style.display = 'block';
-            } else {
-                customGroup.style.display = 'none';
-                document.getElementById('regCustomPrice').value = '0';
-            }
-            formEl.dispatchEvent(new Event('input'));
-        });
-        // Hotel toggler
-        const hotelSel = document.getElementById('regHotel');
-        const roomTypeSel = document.getElementById('regRoomType');
-        const accPriceGroup = document.getElementById('regAccPriceGroup');
-        hotelSel.addEventListener('change', () => {
-            if (hotelSel.value) {
-                roomTypeSel.disabled = false;
-                accPriceGroup.style.display = 'block';
-            } else {
-                roomTypeSel.disabled = true;
-                accPriceGroup.style.display = 'none';
-                document.getElementById('regAccPrice').value = '0';
-            }
-        });
-    });
-
-    // Handle Edit
-    container.querySelectorAll('.btn-edit-reg').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const id = e.currentTarget.dataset.id;
-            const p = DB.participants.getById(id);
-            if (!p) return;
-
-            const companies = DB.companies.getAll();
-            const companyOptions = companies.map(c => `<option value="${c.name}" ${p.company === c.name ? 'selected' : ''}>${c.name}</option>`).join('');
-
-            const formHTML = `
-                <div class="form-row">
-                    <div class="form-group"><label class="form-label">Yetkili</label><input type="text" class="form-input" id="editAuth" value="${p.authorizedPerson || ''}"></div>
-                    <div class="form-group">
-                        <label class="form-label">Firma</label>
-                        <select class="form-select searchable-select" id="editCompany">
-                            <option value="">Seçiniz...</option>
-                            ${companyOptions}
-                            <option value="Bireysel" ${p.company === 'Bireysel' ? 'selected' : ''}>Bireysel / Diğer</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group"><label class="form-label">İsim*</label><input type="text" class="form-input" id="editFirstName" value="${p.firstName || ''}" required></div>
-                    <div class="form-group"><label class="form-label">Soyad*</label><input type="text" class="form-input" id="editLastName" value="${p.lastName || ''}" required></div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group"><label class="form-label">Telefon*</label><input type="text" class="form-input mask-phone" id="editPhone" value="${p.phone || ''}" required placeholder="05XX XXX XX XX"></div>
-                    <div class="form-group"><label class="form-label">E-posta</label><input type="email" class="form-input" id="editEmail" value="${p.email || ''}"></div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group"><label class="form-label">Doğum Tarihi</label><input type="date" class="form-input" id="editBirth" value="${p.birthDate || ''}"></div>
-                    <div class="form-group"><label class="form-label">Kalkış Şehri</label><input type="text" class="form-input" id="editCity" value="${p.depCity || ''}"></div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group"><label class="form-label">TC Kimlik No</label><input type="text" class="form-input mask-tc" id="editTc" value="${p.tcNo || ''}"></div>
-                    <div class="form-group"><label class="form-label">Pasaport No</label><input type="text" class="form-input" id="editPass" value="${p.passportNo || ''}"></div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">Kayıt Dönemi</label>
-                        <select class="form-select" id="editPeriod">
-                            <option value="early" ${p.regPeriod === 'early' ? 'selected' : ''}>Erken Kayıt</option>
-                            <option value="late" ${p.regPeriod === 'late' ? 'selected' : ''}>Geç Kayıt</option>
-                            <option value="custom" ${p.regPeriod === 'custom' ? 'selected' : ''}>Özel Fiyat Belirle</option>
-                        </select>
-                    </div>
-                    <div class="form-group" id="editCustomPriceGroup" style="${p.regPeriod === 'custom' ? 'display: block;' : 'display: none;'}">
-                        <label class="form-label">Özel Fiyat (₺)</label>
-                        <input type="number" class="form-input" id="editCustomPrice" value="${p.regCustomPrice || 0}">
-                    </div>
-                </div>
-                <div style="margin-top: 16px; text-align: left;">
-                    <button class="btn btn-danger btn-sm" id="btnDeleteParticipant">
-                        <i data-lucide="trash-2"></i> Bu Misafiri Sil
-                    </button>
-                </div>
-            `;
-            
-            openModal({
-                title: 'Misafir Düzenle',
-                content: formHTML,
-                width: '600px',
-                onSave: () => {
-                    const firstName = document.getElementById('editFirstName').value;
-                    const lastName = document.getElementById('editLastName').value;
-                    const phone = document.getElementById('editPhone').value;
-                    
-                    if (!firstName || !lastName || !phone) {
-                        alert('Lütfen zorunlu alanları (*) doldurun.');
-                        return;
-                    }
-                    
-                    DB.participants.update(id, {
-                        authorizedPerson: document.getElementById('editAuth').value,
-                        company: document.getElementById('editCompany').value,
-                        firstName: firstName,
-                        lastName: lastName,
-                        email: document.getElementById('editEmail').value,
-                        phone: phone,
-                        birthDate: document.getElementById('editBirth').value,
-                        tcNo: document.getElementById('editTc').value,
-                        passportNo: document.getElementById('editPass').value,
-                        depCity: document.getElementById('editCity').value,
-                        regPeriod: document.getElementById('editPeriod').value,
-                        regCustomPrice: Number(document.getElementById('editCustomPrice').value) || 0
-                    });
-                    
-                    closeModal();
-                    renderRegistrationModule(container, orgId);
-                    if (typeof lucide !== 'undefined') lucide.createIcons();
-                }
-            });
-
-            // Re-bind Lucide icons inside modal for the delete button
-            if (typeof lucide !== 'undefined') lucide.createIcons();
-
-            // Handle logic for custom price visibility in Edit modal
-            const modalEl = document.querySelector('.modal');
-            if (modalEl) {
-                const periodSelect = modalEl.querySelector('#editPeriod');
-                const customPriceGroup = modalEl.querySelector('#editCustomPriceGroup');
-                if(periodSelect && customPriceGroup) {
-                    periodSelect.addEventListener('change', (e) => {
-                        if (e.target.value === 'custom') {
-                            customPriceGroup.style.display = 'block';
-                        } else {
-                            customPriceGroup.style.display = 'none';
-                        }
-                    });
-                }
-                
-                // Handle Delete
-                const btnDelete = modalEl.querySelector('#btnDeleteParticipant');
-                if (btnDelete) {
-                    btnDelete.addEventListener('click', () => {
-                        if (confirm('Bu misafiri ve bağlı olduğu uçuş vb. verileri tamamen silmek istediğinize emin misiniz?')) {
-                            DB.participants.delete(id);
-                            closeModal();
-                            renderRegistrationModule(container, orgId);
-                            if (typeof lucide !== 'undefined') lucide.createIcons();
-                        }
-                    });
-                }
-            }
-        });
-    });
+  if (values.tcNo && values.tcNo.length !== 11) {
+    errors.push({ field: 'tcNo', message: 'TC Kimlik No tam 11 hane olmalıdır.' });
+  }
+  if (values.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email)) {
+    errors.push({ field: 'email', message: 'Geçerli bir e-posta adresi girin.' });
+  }
+  return errors;
 }

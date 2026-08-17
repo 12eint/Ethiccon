@@ -1,219 +1,89 @@
-import { DB } from '../db.js';
+/**
+ * Tüm organizasyonlardaki katılımcıların birleşik listesi.
+ * Kayıt ekleme/düzenleme organizasyon içinde yapılır; bu ekran
+ * arama ve genel görünüm içindir.
+ */
+import { DB } from '../core/store.js';
 import { createTable } from '../components/table.js';
-import { openModal, closeModal } from '../components/modal.js';
+import { navigateTo, paths } from '../core/router.js';
+import { html, refreshIcons, emptyState, escapeHtml as escapeCell } from '../core/ui.js';
+import { visibleEvents } from '../core/auth.js';
 
-const MONTHS = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+const PERIOD_LABELS = { early: 'Erken Kayıt', late: 'Geç Kayıt', custom: 'Özel Fiyat' };
 
-function formatDate(dateStr) {
-  if (!dateStr) return '-';
-  const d = new Date(dateStr);
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
-}
+export function renderParticipants(container) {
+  const events = visibleEvents();
+  const eventNames = new Map(events.map((event) => [event.id, event.name]));
+  const participants = DB.participants
+    .getAll()
+    .filter((pax) => eventNames.has(pax.eventId));
 
-function formatCurrency(amount) {
-  return '₺' + Number(amount || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function showToast(message, type = 'success') {
-  const container = document.getElementById('toastContainer');
-  const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  toast.innerHTML = `<i data-lucide="${type === 'success' ? 'check-circle' : type === 'error' ? 'alert-circle' : 'info'}"></i> ${message}`;
-  container.appendChild(toast);
-  if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [toast] });
-  setTimeout(() => { toast.classList.add('removing'); setTimeout(() => toast.remove(), 300); }, 3000);
-}
-
-const TYPE_BADGES = {
-  speaker:  { badge: 'badge-purple', label: 'Konuşmacı' },
-  vip:      { badge: 'badge-gold',   label: 'VIP' },
-  standard: { badge: 'badge-info',   label: 'Standart' }
-};
-
-function openParticipantModal(participant, eventId, onDone) {
-  const isEdit = !!participant;
-  const data = participant || {};
-  const events = DB.events.getAll();
-
-  const eventSelect = !eventId ? `
-    <div class="form-group">
-      <label class="form-label">Etkinlik</label>
-      <select class="form-select" name="eventId" required>
-        <option value="">Etkinlik seçin...</option>
-        ${events.map(e => `<option value="${e.id}" ${data.eventId === e.id ? 'selected' : ''}>${e.name}</option>`).join('')}
-      </select>
-    </div>
-  ` : '';
-
-  const content = `
-    <form id="participantForm">
-      ${eventSelect}
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Ad</label>
-          <input class="form-input" type="text" name="firstName" value="${data.firstName || ''}" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Soyad</label>
-          <input class="form-input" type="text" name="lastName" value="${data.lastName || ''}" required>
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Kurum/Hastane</label>
-        <input class="form-input" type="text" name="organization" value="${data.organization || ''}">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Unvan</label>
-        <input class="form-input" type="text" name="title" value="${data.title || ''}">
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">E-posta</label>
-          <input class="form-input" type="email" name="email" value="${data.email || ''}">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Telefon</label>
-          <input class="form-input mask-phone" type="tel" name="phone" value="${data.phone || ''}" placeholder="05XX XXX XX XX">
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Kayıt Tipi</label>
-        <select class="form-select" name="type">
-          <option value="standard" ${data.type === 'standard' ? 'selected' : ''}>Standart</option>
-          <option value="speaker" ${data.type === 'speaker' ? 'selected' : ''}>Konuşmacı</option>
-          <option value="vip" ${data.type === 'vip' ? 'selected' : ''}>VIP</option>
-        </select>
-      </div>
-      <div class="form-row">
-        <div class="form-checkbox-group">
-          <label class="form-checkbox">
-            <input type="checkbox" name="accommodation" ${data.accommodation ? 'checked' : ''}>
-            <span>Konaklama</span>
-          </label>
-        </div>
-        <div class="form-checkbox-group">
-          <label class="form-checkbox">
-            <input type="checkbox" name="transfer" ${data.transfer ? 'checked' : ''}>
-            <span>Transfer</span>
-          </label>
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Notlar</label>
-        <textarea class="form-textarea" name="notes" rows="3">${data.notes || ''}</textarea>
-      </div>
-    </form>
-  `;
-
-  openModal({
-    title: isEdit ? 'Katılımcı Düzenle' : 'Yeni Katılımcı',
-    content,
-    saveText: isEdit ? 'Güncelle' : 'Kaydet',
-    onSave: () => {
-      const form = document.getElementById('participantForm');
-      const formData = new FormData(form);
-      const values = Object.fromEntries(formData.entries());
-
-      values.accommodation = form.querySelector('[name="accommodation"]').checked;
-      values.transfer = form.querySelector('[name="transfer"]').checked;
-
-      if (!values.firstName || !values.firstName.trim()) {
-        showToast('Ad alanı zorunludur.', 'error');
-        return;
-      }
-      if (!values.lastName || !values.lastName.trim()) {
-        showToast('Soyad alanı zorunludur.', 'error');
-        return;
-      }
-
-      const resolvedEventId = eventId || values.eventId;
-      if (!resolvedEventId) {
-        showToast('Lütfen bir etkinlik seçin.', 'error');
-        return;
-      }
-      values.eventId = resolvedEventId;
-
-      if (isEdit) {
-        DB.participants.update(participant.id, values);
-        showToast('Katılımcı başarıyla güncellendi.');
-      } else {
-        DB.participants.create(values);
-        showToast('Katılımcı başarıyla eklendi.');
-      }
-      closeModal();
-      onDone();
-    }
-  });
-}
-
-export function renderParticipants(container, eventId) {
-  const participants = eventId
-    ? DB.participants.getByEventId(eventId)
-    : DB.participants.getAll();
-
-  container.innerHTML = `
-    <div class="page-fade-in">
-      <div class="page-header">
+  container.innerHTML = html`
+    <div class="page-header">
+      <div>
         <h1>Katılımcı Listesi</h1>
-        <button class="btn btn-primary" id="addParticipantBtn">
-          <i data-lucide="user-plus"></i> Yeni Katılımcı
-        </button>
-      </div>
-      <div class="card">
-        <div id="participantsTableContainer"></div>
+        <p style="color:var(--slate-500);font-size:0.875rem;margin-top:4px;">
+          Tüm organizasyonlardaki misafirler. Ekleme ve düzenleme organizasyon sayfasından yapılır.
+        </p>
       </div>
     </div>
+    <div class="card"><div id="participantsTable"></div></div>
   `;
 
-  const reRender = () => renderParticipants(container, eventId);
-
-  document.getElementById('addParticipantBtn').addEventListener('click', () => {
-    openParticipantModal(null, eventId, reRender);
-  });
+  const host = container.querySelector('#participantsTable');
 
   if (participants.length === 0) {
-    document.getElementById('participantsTableContainer').innerHTML = `
-      <div class="empty-state">
-        <div class="empty-state-icon"><i data-lucide="users"></i></div>
-        <h3 class="empty-state-title">Henüz katılımcı eklenmedi</h3>
-        <p class="empty-state-text">Yeni katılımcı eklemek için yukarıdaki butonu kullanın.</p>
-      </div>
-    `;
+    host.innerHTML = emptyState({
+      icon: 'users',
+      title: 'Henüz katılımcı yok',
+      text: 'Bir organizasyon açıp Kayıt sekmesinden misafir ekleyin.',
+    });
+    refreshIcons(container);
     return;
   }
 
-  createTable(document.getElementById('participantsTableContainer'), {
-    columns: [
-      { key: 'firstName', label: 'Ad Soyad', render: (val, row) => `${row.firstName} ${row.lastName}` },
-      { key: 'organization', label: 'Kurum/Hastane', render: (val) => val || '-' },
-      { key: 'title', label: 'Unvan', render: (val) => val || '-' },
-      { key: 'type', label: 'Tip', render: (val) => {
-        const t = TYPE_BADGES[val] || { badge: 'badge-info', label: val };
-        return `<span class="badge ${t.badge}">${t.label}</span>`;
-      }},
-      { key: 'email', label: 'E-posta', render: (val) => val || '-' },
-      { key: 'phone', label: 'Telefon', render: (val) => val || '-' },
-      { key: 'accommodation', label: 'Konaklama', render: (val) =>
-        val ? '<i data-lucide="check" style="color:var(--color-success);width:18px;"></i>' : '<i data-lucide="x" style="color:var(--color-danger);width:18px;"></i>'
-      },
-      { key: 'transfer', label: 'Transfer', render: (val) =>
-        val ? '<i data-lucide="check" style="color:var(--color-success);width:18px;"></i>' : '<i data-lucide="x" style="color:var(--color-danger);width:18px;"></i>'
-      }
-    ],
+  createTable(host, {
     data: participants,
     searchable: true,
-    searchPlaceholder: 'Katılımcı ara...',
-    pageSize: 10,
+    searchPlaceholder: 'İsim, firma veya e-posta ara...',
+    pageSize: 15,
+    onRowClick: (row) => navigateTo(paths.org(row.eventId, 'registration')),
+    columns: [
+      {
+        key: 'firstName',
+        label: 'Ad Soyad',
+        render: (_value, row) => `<strong>${escapeCell(`${row.firstName ?? ''} ${row.lastName ?? ''}`)}</strong>`,
+      },
+      { key: 'company', label: 'Firma', render: (value) => escapeCell(value) || '-' },
+      {
+        key: 'eventId',
+        label: 'Organizasyon',
+        render: (value) => `<span class="badge badge-info">${escapeCell(eventNames.get(value) ?? '-')}</span>`,
+      },
+      { key: 'email', label: 'E-posta', render: (value) => escapeCell(value) || '-' },
+      { key: 'phone', label: 'Telefon', render: (value) => escapeCell(value) || '-' },
+      {
+        key: 'regPeriod',
+        label: 'Kayıt Tipi',
+        render: (value) => PERIOD_LABELS[value] ?? PERIOD_LABELS.early,
+      },
+      {
+        key: 'accommodation',
+        label: 'Konaklama',
+        render: (value, row) =>
+          value
+            ? `<span class="badge badge-success">${escapeCell(row.roomType || 'Var')}</span>`
+            : '<span style="color:var(--slate-400);">-</span>',
+      },
+    ],
     filters: [
       {
-        key: 'type',
-        label: 'Tip',
+        key: 'eventId',
+        label: 'Organizasyon',
         options: [
-          { value: '', label: 'Tüm Tipler' },
-          { value: 'speaker', label: 'Konuşmacı' },
-          { value: 'vip', label: 'VIP' },
-          { value: 'standard', label: 'Standart' }
-        ]
+          { value: '', label: 'Tüm Organizasyonlar' },
+          ...events.map((event) => ({ value: event.id, label: event.name })),
+        ],
       },
       {
         key: 'accommodation',
@@ -221,32 +91,19 @@ export function renderParticipants(container, eventId) {
         options: [
           { value: '', label: 'Tümü' },
           { value: 'true', label: 'Konaklama Var' },
-          { value: 'false', label: 'Konaklama Yok' }
-        ]
-      }
+          { value: 'false', label: 'Konaklama Yok' },
+        ],
+      },
     ],
     actions: [
       {
-        icon: 'pencil',
-        className: 'edit',
-        title: 'Düzenle',
-        onClick: (row) => {
-          const p = DB.participants.getById(row.id);
-          openParticipantModal(p, eventId, reRender);
-        }
+        icon: 'external-link',
+        className: 'view',
+        title: 'Organizasyonda aç',
+        onClick: (row) => navigateTo(paths.org(row.eventId, 'registration')),
       },
-      {
-        icon: 'trash-2',
-        className: 'delete',
-        title: 'Sil',
-        onClick: (row) => {
-          if (window.confirm(`"${row.firstName} ${row.lastName}" katılımcısını silmek istediğinize emin misiniz?`)) {
-            DB.participants.delete(row.id);
-            showToast('Katılımcı başarıyla silindi.');
-            reRender();
-          }
-        }
-      }
-    ]
+    ],
   });
+
+  refreshIcons(container);
 }

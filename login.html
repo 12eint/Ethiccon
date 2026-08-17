@@ -150,53 +150,34 @@
 </div>
 
 <script type="module">
-    import { DB } from './js/db.js';
-    
+    import { initStore } from './js/core/store.js';
+    import { login } from './js/core/auth.js';
+
     lucide.createIcons();
 
-    // Check if already logged in
+    // Varsayılan kullanıcılar yalnızca hiç kullanıcı yoksa oluşturulur.
+    // Önceki sürüm her girişte admin hesabını yeniden yaratıyordu; bu,
+    // hesap silinse bile geri gelen bir arka kapı anlamına geliyordu.
+    initStore();
+
     if (sessionStorage.getItem('auth_user')) {
-        window.location.href = 'index.html';
+        window.location.replace('index.html');
     }
 
     document.getElementById('loginForm').addEventListener('submit', (e) => {
         e.preventDefault();
-        
-        const user = document.getElementById('username').value.trim();
-        const pass = document.getElementById('password').value.trim();
+
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
         const errorMsg = document.getElementById('errorMsg');
-        
-        const users = DB.users.getAll();
-        let usersUpdated = false;
-        // Failsafe: if admin doesn't exist for some reason, recreate it
-        if (!users.find(u => u.username === 'admin')) {
-            users.push({ id: 'admin', username: 'admin', password: '123', name: 'Sistem Yöneticisi', role: 'admin', permissions: ['all'] });
-            usersUpdated = true;
-        }
-        // Failsafe: if staff doesn't exist for some reason, recreate it
-        if (!users.find(u => u.username === 'staff')) {
-            users.push({ id: 'staff', username: 'staff', password: '123', name: 'Operasyon Sorumlusu', role: 'staff', permissions: ['view_participants', 'add_participants'] });
-            usersUpdated = true;
-        }
-        
-        if (usersUpdated) {
-            localStorage.setItem('ethiccon_users', JSON.stringify(users));
+
+        if (login(username, password)) {
+            window.location.replace('index.html');
+            return;
         }
 
-        const found = users.find(u => u.username === user && u.password === pass);
-        
-        if (found) {
-            sessionStorage.setItem('auth_user', JSON.stringify({
-                id: found.id,
-                username: found.username,
-                name: found.name,
-                role: found.role
-            }));
-            window.location.href = 'index.html';
-        } else {
-            errorMsg.style.display = 'block';
-            setTimeout(() => errorMsg.style.display = 'none', 3000);
-        }
+        errorMsg.style.display = 'block';
+        setTimeout(() => { errorMsg.style.display = 'none'; }, 3000);
     });
 </script>
 

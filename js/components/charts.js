@@ -49,7 +49,9 @@ export function createBarChart(canvasId, { labels, datasets }) {
         return {
             label: ds.label,
             data: ds.data,
-            backgroundColor: gradient,
+            // Çubuk başına ayrı renk verilmişse (ör. gelir yeşil / gider kırmızı)
+            // gradyan yerine o dizi kullanılır.
+            backgroundColor: ds.backgroundColor ?? gradient,
             borderColor: color,
             borderWidth: 0,
             borderRadius: 8,

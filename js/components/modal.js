@@ -2,7 +2,7 @@
  * Modal dialog component.
  * Uses the #modalOverlay element defined in index.html.
  */
-import { initSearchableSelects } from '../app.js';
+import { initSearchableSelects, escapeHtml } from '../core/ui.js';
 
 let escHandler = null;
 
@@ -22,7 +22,7 @@ export function openModal({ title, content, onSave, saveText = 'Kaydet', width }
             <button class="btn btn-secondary modal-cancel-btn">İptal</button>
     `;
     if (onSave) {
-        footerHTML += `<button class="btn btn-primary modal-save-btn">${saveText}</button>`;
+        footerHTML += `<button class="btn btn-primary modal-save-btn">${escapeHtml(saveText)}</button>`;
     }
     footerHTML += `</div>`;
 
@@ -32,7 +32,7 @@ export function openModal({ title, content, onSave, saveText = 'Kaydet', width }
     overlay.innerHTML = `
         <div class="modal" ${modalStyle}>
             <div class="modal-header">
-                <h2 class="modal-title">${title}</h2>
+                <h2 class="modal-title">${escapeHtml(title)}</h2>
                 <button class="modal-close" title="Kapat">
                     <i data-lucide="x"></i>
                 </button>

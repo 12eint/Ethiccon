@@ -1,5 +1,5 @@
-import { DB } from '../../db.js';
-import { initSearchableSelects } from '../../app.js';
+import { DB } from '../../core/store.js';
+import { initSearchableSelects, showToast, refreshIcons, escapeHtml } from '../../core/ui.js';
 
 export function renderCommunicationModule(container, eventId) {
     const render = () => {
@@ -9,7 +9,12 @@ export function renderCommunicationModule(container, eventId) {
         let html = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
                 <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700;">Toplu İletişim & E-Posta Gönderimi</h3>
-                <div class="badge badge-success"><i data-lucide="check-circle" style="width:14px; margin-right:4px;"></i>SMTP Aktif</div>
+                <div class="badge badge-warning"><i data-lucide="alert-triangle" style="width:14px; margin-right:4px;"></i>Önizleme — gönderim yok</div>
+            </div>
+
+            <div style="background: var(--warning-light); border: 1px solid var(--warning); border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 24px; display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: #92400e;">
+                <i data-lucide="info" style="width:18px; height:18px; flex-shrink:0;"></i>
+                <span>Bu modül henüz gerçek e-posta göndermiyor. Bir SMTP sunucusu bağlanana kadar "Gönder" yalnızca kayıt oluşturur.</span>
             </div>
             
             <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 24px;">
@@ -29,7 +34,7 @@ export function renderCommunicationModule(container, eventId) {
                     <div class="form-group" id="specificUsersGroup" style="display: none;">
                         <label class="form-label">Kişi Seçin</label>
                         <select class="form-select searchable-select" id="mailSpecificUsers" multiple>
-                            ${participants.map(p => `<option value="${p.email || p.id}">${p.firstName} ${p.lastName} (${p.email || 'E-posta yok'})</option>`).join('')}
+                            ${participants.map(p => `<option value="${escapeHtml(p.email || p.id)}">${escapeHtml(`${p.firstName} ${p.lastName}`)} (${escapeHtml(p.email || 'E-posta yok')})</option>`).join('')}
                         </select>
                     </div>
 
@@ -68,7 +73,7 @@ export function renderCommunicationModule(container, eventId) {
         `;
 
         container.innerHTML = html;
-        if (typeof lucide !== 'undefined') lucide.createIcons({nodes: [container]});
+        refreshIcons(container);
 
         // Toggle specific users
         const targetType = container.querySelector('#mailTargetType');
@@ -123,30 +128,20 @@ export function renderCommunicationModule(container, eventId) {
                 return;
             }
 
-            // Simulate Send
-            const btn = container.querySelector('#btnSendMail');
-            btn.innerHTML = `<div class="loader-spinner" style="width:16px;height:16px;border-width:2px;"></div> Gönderiliyor...`;
-            btn.disabled = true;
+            const recipients = targetType.value === 'all'
+                ? participants.length
+                : targetType.value === 'sponsors'
+                    ? sponsors.length
+                    : container.querySelector('#mailSpecificUsers').selectedOptions.length;
 
-            setTimeout(() => {
-                let count = targetType.value === 'all' ? participants.length : 
-                            targetType.value === 'sponsors' ? sponsors.length : 
-                            container.querySelector('#mailSpecificUsers').selectedOptions.length;
-                            
-                if (count === 0) count = 1; // fallback if someone selects specific but forgets to choose
-                
-                DB.logs.add(`${count} kişiye "${subject}" konulu e-posta başarıyla gönderildi.`, 'success');
-                
-                const toast = document.createElement('div');
-                toast.className = 'toast toast-success';
-                toast.textContent = `${count} e-posta başarıyla SMTP kuyruğuna alındı.`;
-                document.getElementById('toastContainer').appendChild(toast);
-                setTimeout(() => toast.remove(), 4000);
+            if (recipients === 0) {
+                alert('Seçili alıcı bulunmuyor.');
+                return;
+            }
 
-                btn.innerHTML = `<i data-lucide="send"></i> Gönder`;
-                btn.disabled = false;
-                lucide.createIcons({nodes: [btn]});
-            }, 1200);
+            // Gerçek gönderim yok: yalnızca hareket kaydı oluşturulur.
+            DB.logs.add(`"${subject}" konulu e-posta ${recipients} alıcı için hazırlandı (gönderim yapılmadı).`, 'warning');
+            showToast(`${recipients} alıcı için taslak kaydedildi — gönderim için SMTP bağlantısı gerekiyor.`, 'warning');
         });
     };
 
