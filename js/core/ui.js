@@ -72,6 +72,21 @@ export function refreshIcons(scope) {
 }
 
 /**
+ * Bir köke tıklama dinleyicisi bağlar, öncekini kaldırarak.
+ *
+ * Olay delegasyonunda kök eleman yeniden çizimler arasında yaşamaya devam
+ * ediyorsa (kenar çubuğu, seçici içeriği) her çizimde addEventListener
+ * çağırmak dinleyicileri biriktirir: iki dinleyici bir tıklamada iki kez
+ * çalışır ve toggle işlemleri "hiç çalışmıyor" gibi görünür.
+ */
+export function bindClick(root, handler) {
+  if (!root) return;
+  if (root.__boundClick) root.removeEventListener('click', root.__boundClick);
+  root.__boundClick = handler;
+  root.addEventListener('click', handler);
+}
+
+/**
  * Tom Select'i .searchable-select alanlarına bağlar.
  * Zaten bağlanmış alanları atlar, böylece kısmi yeniden çizimlerde
  * ikinci bir kopya oluşmaz.

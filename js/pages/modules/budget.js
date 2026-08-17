@@ -6,7 +6,7 @@ import { DB } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
 import { createDoughnutChart, destroyCharts } from '../../components/charts.js';
 import { formatAmount, formatShortDate, toAscii } from '../../core/format.js';
-import { html, raw, showToast, refreshIcons } from '../../core/ui.js';
+import { html, raw, showToast, refreshIcons, bindClick } from '../../core/ui.js';
 import { getCurrentUser, isAdmin } from '../../core/auth.js';
 import { eventFinancials } from '../../core/pricing.js';
 
@@ -88,7 +88,7 @@ export function renderBudgetModule(container, eventId, onChange) {
   }
 
   // ── Olaylar ──
-  container.addEventListener('click', (clickEvent) => {
+  bindClick(container, (clickEvent) => {
     const target = clickEvent.target;
 
     if (target.closest('[data-action="unlock"]')) {

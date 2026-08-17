@@ -4,7 +4,7 @@
 import { DB } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
 import { formatShortDate } from '../../core/format.js';
-import { html, raw, showToast, refreshIcons, emptyState, initSearchableSelects } from '../../core/ui.js';
+import { html, raw, showToast, refreshIcons, emptyState, initSearchableSelects, bindClick } from '../../core/ui.js';
 
 const DIRECTIONS = {
   arrival: 'Havaalanı ➔ Otel (Karşılama)',
@@ -85,7 +85,7 @@ export function renderTransfersModule(container, eventId, onChange) {
     });
   });
 
-  container.addEventListener('click', (event) => {
+  bindClick(container, (event) => {
     if (event.target.closest('[data-action="add"]')) {
       return openTransferModal({ eventId, participants, onDone: refresh });
     }

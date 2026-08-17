@@ -2,7 +2,7 @@
  * Kenar çubuğu: organizasyon listesi ve modül bağlantıları.
  */
 import { formatShortDate } from '../core/format.js';
-import { html, raw, refreshIcons } from '../core/ui.js';
+import { html, raw, refreshIcons, bindClick } from '../core/ui.js';
 import { hasPermission, visibleEvents } from '../core/auth.js';
 
 const APP_VERSION = 'v2.0.0';
@@ -114,7 +114,7 @@ export function renderSidebar(container, activePage) {
   `;
 
   // Akordeon: aynı anda tek panel açık kalır.
-  container.addEventListener('click', (event) => {
+  bindClick(container, (event) => {
     const header = event.target.closest('[data-accordion]');
     if (!header) return;
 

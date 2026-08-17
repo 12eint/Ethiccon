@@ -8,7 +8,7 @@
 import { DB } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
 import { formatAmount } from '../../core/format.js';
-import { html, raw, showToast, refreshIcons, initSearchableSelects } from '../../core/ui.js';
+import { html, raw, showToast, refreshIcons, initSearchableSelects, bindClick } from '../../core/ui.js';
 import { getCurrentUser, isAdmin, hasPermission } from '../../core/auth.js';
 import { registrationPrice, ROOM_TYPES, ROOM_TYPE_LABELS } from '../../core/pricing.js';
 
@@ -177,7 +177,7 @@ function wireActions(container, ctx) {
 
   // Butonların bir kısmı yetkiye bağlı render edildiği için tek tek
   // querySelector yerine delegasyon kullanıyoruz; eksik buton hata vermez.
-  container.addEventListener('click', (clickEvent) => {
+  bindClick(container, (clickEvent) => {
     const action = clickEvent.target.closest('[data-action]')?.dataset.action;
 
     if (action === 'template') return downloadTemplate();

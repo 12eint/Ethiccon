@@ -9,7 +9,7 @@
 import { DB } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
 import { formatCurrency, formatDate } from '../../core/format.js';
-import { html, raw, showToast, refreshIcons, emptyState } from '../../core/ui.js';
+import { html, raw, showToast, refreshIcons, emptyState, bindClick } from '../../core/ui.js';
 import { getAccommodationConfig, accommodationPrice, registrationPrice } from '../../core/pricing.js';
 
 const VAT_DEFAULT = 20;
@@ -82,7 +82,7 @@ export function renderProformaModule(container, eventId, onChange) {
     openProformaModal(null, eventId, refresh);
   });
 
-  container.addEventListener('click', (event) => {
+  bindClick(container, (event) => {
     const editId = event.target.closest('[data-edit]')?.dataset.edit;
     if (editId) {
       openProformaModal(DB.proformas.getById(editId), eventId, refresh);

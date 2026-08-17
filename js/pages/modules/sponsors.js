@@ -5,7 +5,7 @@
 import { DB } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
 import { formatAmount } from '../../core/format.js';
-import { html, raw, showToast, refreshIcons, emptyState } from '../../core/ui.js';
+import { html, raw, showToast, refreshIcons, emptyState, bindClick } from '../../core/ui.js';
 import { getCurrentUser } from '../../core/auth.js';
 
 export const SPONSOR_PACKAGES = [
@@ -100,7 +100,7 @@ export function renderSponsorsModule(container, eventId, onChange) {
     openSponsorModal(null, eventId, refresh);
   });
 
-  container.addEventListener('click', (event) => {
+  bindClick(container, (event) => {
     const editId = event.target.closest('[data-edit]')?.dataset.edit;
     if (editId) {
       openSponsorModal(DB.sponsors.getById(editId), eventId, refresh);

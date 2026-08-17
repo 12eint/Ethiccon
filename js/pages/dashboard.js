@@ -4,7 +4,7 @@
 import { DB } from '../core/store.js';
 import { createBarChart, createDoughnutChart, destroyCharts } from '../components/charts.js';
 import { formatAmount, formatTime } from '../core/format.js';
-import { html, raw, refreshIcons } from '../core/ui.js';
+import { html, raw, refreshIcons, bindClick } from '../core/ui.js';
 import { getCurrentUser, isAdmin, visibleEvents } from '../core/auth.js';
 import { eventFinancials, ROOM_TYPES } from '../core/pricing.js';
 import { navigateTo } from '../core/router.js';
@@ -157,7 +157,7 @@ export function renderDashboard(container) {
     </div>
   `;
 
-  container.addEventListener('click', (event) => {
+  bindClick(container, (event) => {
     const target = event.target.closest('[data-go]');
     if (target) navigateTo(`#${target.dataset.go}`);
   });

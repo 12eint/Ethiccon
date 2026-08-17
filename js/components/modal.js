@@ -78,6 +78,21 @@ export function openModal({ title, content, onSave, saveText = 'Kaydet', width }
         }
     }
 
+    /*
+     * Modal formları hiçbir zaman tarayıcıya gönderilmez; kaydetme her zaman
+     * onSave üzerinden yapılır. Bu formların action'ı ve submit dinleyicisi
+     * olmadığı için, örtük gönderim (tek alanlı bir formda Enter'a basmak)
+     * sayfayı mevcut adrese yeniden yükler ve kullanıcıya "sayfa kendi kendine
+     * yenilendi" gibi görünür. Gönderimi engelleyip Enter'ı kaydetmeye
+     * yönlendiriyoruz — zaten beklenen davranış bu.
+     */
+    overlay.querySelectorAll('form').forEach((form) => {
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (onSave) onSave();
+        });
+    });
+
     // Backdrop click
     overlay.addEventListener('click', handleBackdropClick);
 

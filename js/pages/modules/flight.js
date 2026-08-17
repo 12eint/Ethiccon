@@ -5,7 +5,7 @@
 import { DB } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
 import { formatAmount } from '../../core/format.js';
-import { html, raw, showToast, refreshIcons, emptyState } from '../../core/ui.js';
+import { html, raw, showToast, refreshIcons, emptyState, bindClick } from '../../core/ui.js';
 import { isAdmin } from '../../core/auth.js';
 import { flightProfit } from '../../core/pricing.js';
 
@@ -114,7 +114,7 @@ export function renderFlightModule(container, eventId, onChange) {
         `)}
   `;
 
-  container.addEventListener('click', (event) => {
+  bindClick(container, (event) => {
     if (event.target.closest('[data-action="add"]')) {
       return openFlightModal({ eventId, participants, flight: null, onDone: refresh });
     }

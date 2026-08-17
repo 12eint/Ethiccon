@@ -191,7 +191,8 @@
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--slate-200);
-  overflow: hidden;
+  /* Geniş tablolar (ör. uçuş) sayfayı taşırmak yerine kendi içinde kaysın. */
+  overflow-x: auto;
 }
 
 .table-toolbar {
@@ -717,7 +718,8 @@
    <style> bloğundan buraya taşındı.
    ───────────────────────────────────────────────────────────── */
 
-.topbar-left { display: flex; align-items: center; gap: 16px; }
+/* .topbar-left kuralı layout.css'te; burada tekrarlamak flex-direction
+   çakışmasına yol açıyordu. */
 
 .topbar-user {
   display: flex;
@@ -815,9 +817,15 @@ body.sidebar-collapsed .nav-label,
 body.sidebar-collapsed .nav-label-sm,
 body.sidebar-collapsed .nav-date-sm,
 body.sidebar-collapsed .sidebar-subtitle,
+body.sidebar-collapsed .sidebar-empty,
 body.sidebar-collapsed .accordion-icon,
 body.sidebar-collapsed .sidebar-version { display: none; }
 body.sidebar-collapsed .sidebar-section-title { opacity: 0; height: 8px; overflow: hidden; }
+/* 72 px'e sığmayan logo metni yerine baş harf gösterilir. */
+body.sidebar-collapsed .logo-text { font-size: 0; }
+body.sidebar-collapsed .logo-text::first-letter { font-size: 1.5rem; }
+body.sidebar-collapsed .sidebar-header { align-items: center; padding: 24px 8px; }
+body.sidebar-collapsed .sidebar-nav-item { justify-content: center; }
 
 /* Kenar çubuğu organizasyon tarihi */
 .nav-date-sm {

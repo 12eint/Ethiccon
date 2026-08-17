@@ -5,7 +5,7 @@
 import { DB } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
 import { formatAmount } from '../../core/format.js';
-import { html, raw, showToast, refreshIcons } from '../../core/ui.js';
+import { html, raw, showToast, refreshIcons, bindClick } from '../../core/ui.js';
 import { isAdmin } from '../../core/auth.js';
 import {
   ROOM_TYPES,
@@ -158,7 +158,7 @@ export function renderAccommodationModule(container, eventId, onChange) {
 function wireAccommodation(container, ctx) {
   const { eventId, config, allParticipants, guests, refresh } = ctx;
 
-  container.addEventListener('click', (event) => {
+  bindClick(container, (event) => {
     const action = event.target.closest('[data-action]')?.dataset.action;
 
     if (action === 'save-allotment') {
