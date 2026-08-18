@@ -20,7 +20,10 @@
 .sidebar-header {
   padding: 24px 20px;
   display: flex;
-  align-items: center;
+  /* Logo ile alt başlık alt alta; satır olduğunda yan yana binişiyorlardı. */
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   margin-bottom: 16px;
 }
@@ -35,11 +38,13 @@
   line-height: 1;
 }
 
-.sidebar-logo-subtitle {
+/* İşaretlemede .sidebar-subtitle geçiyor; iki ad da desteklenir. */
+.sidebar-logo-subtitle,
+.sidebar-subtitle {
   font-size: var(--font-size-xs);
   color: var(--slate-400);
-  margin-top: 4px;
   display: block;
+  white-space: nowrap;
 }
 
 .sidebar-section-title {
@@ -183,6 +188,10 @@
 
 .main-wrapper {
   flex: 1;
+  /* Esnek öğelerin varsayılan min-width:auto değeri, geniş tablolar ve
+     çok sekmeli satırlar yüzünden sarmalayıcının viewport'tan taşmasına
+     yol açıyordu; sayfa yatay kayınca sabit kenar çubuğu içeriği örtüyordu. */
+  min-width: 0;
   margin-left: var(--sidebar-width);
   display: flex;
   flex-direction: column;
@@ -205,9 +214,14 @@
   z-index: 50;
 }
 
+/* Menü düğmesi ile başlık yan yana; başlık/altbaşlık ikilisi kendi
+   sarmalayıcısında alt alta durur. */
 .topbar-left {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
 }
 
 .topbar-title {
@@ -311,6 +325,7 @@
 
 .content {
   flex: 1;
+  min-width: 0;
   padding: 32px;
   position: relative;
 }

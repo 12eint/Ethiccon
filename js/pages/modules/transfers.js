@@ -1,259 +1,231 @@
-import { DB } from '../../db.js';
+/**
+ * Lojistik: araç ataması ve yolcu manifestosu.
+ */
+import { DB } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
-import { initSearchableSelects } from '../../app.js';
+import { formatShortDate } from '../../core/format.js';
+import { html, raw, showToast, refreshIcons, emptyState, initSearchableSelects, bindClick } from '../../core/ui.js';
 
-export function renderTransfersModule(container, eventId) {
-    const render = () => {
-        const event = DB.events.getById(eventId);
-        if (!event) return;
+const DIRECTIONS = {
+  arrival: 'Havaalanı ➔ Otel (Karşılama)',
+  departure: 'Otel ➔ Havaalanı (Uğurlama)',
+};
 
-        const transfers = DB.transfers.getByEventId(eventId);
-        const flights = DB.flights.getByEventId(eventId);
-        const participants = DB.participants.getByEventId(eventId);
+export function renderTransfersModule(container, eventId, onChange) {
+  const refresh = () => (onChange ? onChange() : renderTransfersModule(container, eventId));
 
-        let html = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-                <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700;">Lojistik ve Transfer Yönetimi</h3>
-                <button class="btn btn-primary" id="btnNewTransfer">
-                    <i data-lucide="plus"></i> Yeni Transfer / Araç Ata
-                </button>
-            </div>
-            
-            <div class="table-container">
-                <div class="table-toolbar">
-                    <div class="table-search">
-                        <i data-lucide="search" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; color: var(--slate-400);"></i>
-                        <input type="text" id="transferSearch" placeholder="Araç, şoför veya misafir ara...">
-                    </div>
-                </div>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Tarih / Saat</th>
-                            <th>Güzergah</th>
-                            <th>Araç & Şoför</th>
-                            <th>Yolcu Sayısı</th>
-                            <th style="text-align: right;">İşlemler</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${transfers.length === 0 ? `<tr><td colspan="5"><div class="empty-state"><i data-lucide="car"></i><p>Henüz planlanmış bir transfer bulunmuyor.</p></div></td></tr>` : ''}
-                        ${transfers.map(t => {
-                            return `
-                                <tr>
-                                    <td>
-                                        <div style="font-weight: 600;">${new Date(t.date).toLocaleDateString('tr-TR')}</div>
-                                        <div style="font-size: 0.8rem; color: var(--slate-500);">${t.time}</div>
-                                    </td>
-                                    <td>
-                                        <div style="font-weight: 600;">${t.direction === 'arrival' ? 'Havaalanı ➔ Otel' : 'Otel ➔ Havaalanı'}</div>
-                                        <div style="font-size: 0.8rem; color: var(--slate-500);">${t.notes || '-'}</div>
-                                    </td>
-                                    <td>
-                                        <div style="font-weight: 600;">${t.vehicle}</div>
-                                        <div style="font-size: 0.8rem; color: var(--slate-500);">${t.driver || '-'} / ${t.driverPhone || '-'}</div>
-                                    </td>
-                                    <td>
-                                        <span class="badge badge-purple">${t.passengers?.length || 0} Yolcu</span>
-                                    </td>
-                                    <td style="text-align: right;">
-                                        <div class="action-btns" style="justify-content: flex-end;">
-                                            <button class="action-btn btn-view-manifest" data-id="${t.id}" title="Manifesto (Yolcu Listesi)">
-                                                <i data-lucide="users"></i>
-                                            </button>
-                                            <button class="action-btn btn-delete-transfer" data-id="${t.id}" style="color: var(--danger);">
-                                                <i data-lucide="trash-2"></i>
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            `;
-                        }).join('')}
-                    </tbody>
-                </table>
-            </div>
-        `;
+  const transfers = DB.transfers.getByEventId(eventId);
+  const participants = DB.participants.getByEventId(eventId);
+  const byId = new Map(participants.map((pax) => [pax.id, pax]));
 
-        container.innerHTML = html;
-        if (typeof lucide !== 'undefined') lucide.createIcons({nodes: [container]});
+  container.innerHTML = html`
+    <div class="page-header">
+      <h2>Lojistik ve Transfer</h2>
+      <button class="btn btn-primary btn-sm" data-action="add" ${participants.length === 0 ? raw('disabled') : ''}>
+        <i data-lucide="plus"></i> Yeni Transfer
+      </button>
+    </div>
 
-        // Search
-        const searchInput = container.querySelector('#transferSearch');
-        if (searchInput) {
-            searchInput.addEventListener('input', (e) => {
-                const query = e.target.value.toLowerCase();
-                container.querySelectorAll('tbody tr').forEach(tr => {
-                    if (tr.querySelector('.empty-state')) return;
-                    tr.style.display = tr.textContent.toLowerCase().includes(query) ? '' : 'none';
-                });
-            });
-        }
+    ${participants.length === 0
+      ? raw(emptyState({
+          icon: 'users',
+          title: 'Önce misafir kaydı gerekli',
+          text: 'Transfer atayabilmek için Kayıt sekmesinden misafir ekleyin.',
+        }))
+      : transfers.length === 0
+        ? raw(emptyState({
+            icon: 'car',
+            title: 'Planlanmış transfer bulunmuyor',
+            text: 'Yukarıdaki butondan araç ve yolcu ataması yapın.',
+          }))
+        : raw(html`
+          <div style="position:relative;margin-bottom:16px;">
+            <i data-lucide="search" style="width:15px;height:15px;opacity:0.4;position:absolute;left:10px;top:50%;transform:translateY(-50%);pointer-events:none;"></i>
+            <input type="text" id="transferSearch" class="form-input" placeholder="Araç, şoför veya güzergah ara..." style="padding-left:34px;height:36px;font-size:0.85rem;">
+          </div>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr><th>Tarih / Saat</th><th>Güzergah</th><th>Araç & Şoför</th><th>Yolcu</th><th style="text-align:right;">İşlem</th></tr>
+              </thead>
+              <tbody id="transferRows">
+                ${transfers.map((transfer) => raw(html`
+                  <tr data-search="${`${transfer.vehicle ?? ''} ${transfer.driver ?? ''} ${DIRECTIONS[transfer.direction] ?? ''}`.toLowerCase()}">
+                    <td>
+                      <div style="font-weight:600;">${formatShortDate(transfer.date)}</div>
+                      <div style="font-size:0.8rem;color:var(--slate-500);">${transfer.time || '-'}</div>
+                    </td>
+                    <td>
+                      <div style="font-weight:600;">${DIRECTIONS[transfer.direction] ?? '-'}</div>
+                      <div style="font-size:0.8rem;color:var(--slate-500);">${transfer.notes || '-'}</div>
+                    </td>
+                    <td>
+                      <div style="font-weight:600;">${transfer.vehicle}</div>
+                      <div style="font-size:0.8rem;color:var(--slate-500);">${transfer.driver || '-'} / ${transfer.driverPhone || '-'}</div>
+                    </td>
+                    <td><span class="badge badge-purple">${transfer.passengers?.length ?? 0} Yolcu</span></td>
+                    <td style="text-align:right;">
+                      <div class="action-btns" style="justify-content:flex-end;">
+                        <button class="action-btn view" data-manifest="${transfer.id}" title="Manifesto"><i data-lucide="users"></i></button>
+                        <button class="action-btn delete" data-delete="${transfer.id}" title="Sil"><i data-lucide="trash-2"></i></button>
+                      </div>
+                    </td>
+                  </tr>
+                `))}
+              </tbody>
+            </table>
+          </div>
+        `)}
+  `;
 
-        // New Transfer Modal
-        container.querySelector('#btnNewTransfer')?.addEventListener('click', () => {
-            // Get participants with flights
-            const paxOptions = flights.map(f => {
-                const p = participants.find(p => p.id === f.participantId);
-                if (!p) return null;
-                const fDesc = f.type === 'departure' ? `Gidiş: ${f.flightNo} (${f.time})` : `Dönüş: ${f.flightNo} (${f.time})`;
-                return `<option value="${p.id}">${p.firstName} ${p.lastName} - ${fDesc}</option>`;
-            }).filter(Boolean).join('');
+  container.querySelector('#transferSearch')?.addEventListener('input', (event) => {
+    const query = event.target.value.trim().toLowerCase();
+    container.querySelectorAll('#transferRows tr[data-search]').forEach((row) => {
+      row.style.display = !query || row.dataset.search.includes(query) ? '' : 'none';
+    });
+  });
 
-            const formHTML = `
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">Tarih *</label>
-                        <input type="date" class="form-input" id="trfDate" required>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Saat *</label>
-                        <input type="time" class="form-input" id="trfTime" required>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">Yön (Güzergah)</label>
-                        <select class="form-select" id="trfDirection">
-                            <option value="arrival">Havaalanı ➔ Otel (Karşılama)</option>
-                            <option value="departure">Otel ➔ Havaalanı (Uğurlama)</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Araç Tipi / Plaka *</label>
-                        <input type="text" class="form-input" id="trfVehicle" placeholder="Örn: 34 VIP 123 veya Minibüs" required>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">Şoför Adı</label>
-                        <input type="text" class="form-input" id="trfDriver">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Şoför Telefonu</label>
-                        <input type="text" class="form-input mask-phone" id="trfDriverPhone" placeholder="05XX XXX XX XX">
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Yolcular (Çoklu Seçim)</label>
-                    <select class="form-select searchable-select" id="trfPassengers" multiple>
-                        ${paxOptions}
-                    </select>
-                    <p style="font-size: 0.75rem; color: var(--slate-500); margin-top: 4px;">Sadece uçak bileti sisteme girilmiş misafirler listelenir.</p>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Notlar</label>
-                    <textarea class="form-textarea" id="trfNotes" rows="2" placeholder="Karşılama tabelası, uçuş rötar notu vs."></textarea>
-                </div>
-            `;
+  bindClick(container, (event) => {
+    if (event.target.closest('[data-action="add"]')) {
+      return openTransferModal({ eventId, participants, onDone: refresh });
+    }
 
-            openModal({
-                title: 'Yeni Transfer Ata',
-                content: formHTML,
-                width: '600px',
-                onSave: () => {
-                    const date = document.getElementById('trfDate').value;
-                    const time = document.getElementById('trfTime').value;
-                    const vehicle = document.getElementById('trfVehicle').value;
+    const manifestId = event.target.closest('[data-manifest]')?.dataset.manifest;
+    if (manifestId) return showManifest(DB.transfers.getById(manifestId), byId);
 
-                    if (!date || !time || !vehicle) {
-                        alert('Lütfen zorunlu alanları (*) doldurunuz.');
-                        return;
-                    }
+    const deleteId = event.target.closest('[data-delete]')?.dataset.delete;
+    if (!deleteId) return;
+    if (!window.confirm('Transfer kaydını silmek istediğinize emin misiniz?')) return;
+    DB.transfers.delete(deleteId);
+    DB.logs.add('Bir transfer kaydı silindi.', 'warning');
+    showToast('Transfer silindi.');
+    refresh();
+  });
 
-                    const paxSelect = document.getElementById('trfPassengers');
-                    const selectedPax = Array.from(paxSelect.selectedOptions).map(opt => opt.value);
+  refreshIcons(container);
+}
 
-                    DB.transfers.create({
-                        eventId,
-                        date,
-                        time,
-                        direction: document.getElementById('trfDirection').value,
-                        vehicle,
-                        driver: document.getElementById('trfDriver').value,
-                        driverPhone: document.getElementById('trfDriverPhone').value,
-                        notes: document.getElementById('trfNotes').value,
-                        passengers: selectedPax
-                    });
+function openTransferModal({ eventId, participants, onDone }) {
+  // Uçuşu olan misafirlerde uçuş bilgisini de gösteriyoruz; transfer
+  // saatini uçuşa göre planlamak operasyonun en sık ihtiyacı.
+  const flightsByPax = new Map(
+    DB.flights.getByEventId(eventId).map((flight) => [flight.participantId, flight]),
+  );
 
-                    DB.logs.add(`${vehicle} aracı için transfer kaydı oluşturuldu.`, 'success');
-                    closeModal();
-                    render();
-                }
-            });
-            setTimeout(() => {
-                if(typeof initSearchableSelects === 'function') initSearchableSelects();
-            }, 100);
-        });
+  openModal({
+    title: 'Yeni Transfer Ata',
+    width: '640px',
+    content: html`
+      <form id="transferForm">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Tarih *</label>
+            <input type="date" class="form-input" name="date" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Saat *</label>
+            <input type="time" class="form-input" name="time" required>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Güzergah</label>
+            <select class="form-select" name="direction">
+              ${Object.entries(DIRECTIONS).map(([value, label]) => raw(html`
+                <option value="${value}">${label}</option>
+              `))}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Araç / Plaka *</label>
+            <input type="text" class="form-input" name="vehicle" placeholder="Örn: 34 VIP 123 veya Minibüs" required>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Şoför Adı</label>
+            <input type="text" class="form-input" name="driver">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Şoför Telefonu</label>
+            <input type="text" class="form-input mask-phone" name="driverPhone" placeholder="05XX XXX XX XX">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Yolcular</label>
+          <select class="form-select searchable-select" name="passengers" id="transferPassengers" multiple>
+            ${participants.map((pax) => {
+              const flight = flightsByPax.get(pax.id);
+              const code = flight?.outbound?.domFlightCode || flight?.inbound?.domFlightCode;
+              const suffix = code ? ` — ${code}` : '';
+              return raw(html`<option value="${pax.id}">${pax.firstName} ${pax.lastName}${suffix}</option>`);
+            })}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notlar</label>
+          <textarea class="form-textarea" name="notes" rows="2" placeholder="Karşılama tabelası, uçuş rötar notu vb."></textarea>
+        </div>
+      </form>
+    `,
+    onSave: () => {
+      const form = document.getElementById('transferForm');
+      const values = Object.fromEntries(new FormData(form).entries());
 
-        // View Manifest
-        container.querySelectorAll('.btn-view-manifest').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const id = e.currentTarget.dataset.id;
-                const trf = transfers.find(t => t.id === id);
-                if(!trf) return;
+      if (!values.date || !values.time || !values.vehicle.trim()) {
+        showToast('Tarih, saat ve araç bilgisi zorunludur.', 'error');
+        return;
+      }
 
-                let paxHtml = '<div class="empty-state"><p>Bu transfere yolcu atanmamış.</p></div>';
-                if(trf.passengers && trf.passengers.length > 0) {
-                    paxHtml = `
-                        <table class="data-table" style="margin-top: 16px;">
-                            <thead>
-                                <tr>
-                                    <th>Misafir Adı</th>
-                                    <th>Firma</th>
-                                    <th>Telefon</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${trf.passengers.map(pid => {
-                                    const p = participants.find(x => x.id === pid);
-                                    if(!p) return '';
-                                    return `<tr>
-                                        <td style="font-weight:600;">${p.firstName} ${p.lastName}</td>
-                                        <td>${p.company || '-'}</td>
-                                        <td>${p.phone || '-'}</td>
-                                    </tr>`;
-                                }).join('')}
-                            </tbody>
-                        </table>
-                    `;
-                }
+      const passengers = [...form.querySelector('#transferPassengers').selectedOptions].map((o) => o.value);
 
-                const content = `
-                    <div style="background: var(--slate-50); padding: 16px; border-radius: var(--radius-md); margin-bottom: 24px;">
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-                            <div><strong>Araç:</strong> ${trf.vehicle}</div>
-                            <div><strong>Güzergah:</strong> ${trf.direction === 'arrival' ? 'Havaalanı ➔ Otel' : 'Otel ➔ Havaalanı'}</div>
-                            <div><strong>Tarih / Saat:</strong> ${new Date(trf.date).toLocaleDateString('tr-TR')} ${trf.time}</div>
-                            <div><strong>Şoför:</strong> ${trf.driver || '-'} (${trf.driverPhone || '-'})</div>
-                        </div>
-                    </div>
-                    <h4 style="font-size: 1rem; font-weight: 600;">Yolcu Manifestosu</h4>
-                    ${paxHtml}
-                `;
+      DB.transfers.create({ ...values, eventId, passengers });
+      DB.logs.add(`${values.vehicle} aracı için transfer oluşturuldu.`, 'success');
+      closeModal();
+      showToast('Transfer kaydedildi.');
+      onDone();
+    },
+  });
 
-                openModal({
-                    title: 'Transfer Detayı',
-                    content,
-                    width: '600px'
-                });
-                
-                // Remove save button from manifest modal
-                const modalSaveBtn = document.querySelector('.modal .btn-primary');
-                if(modalSaveBtn) modalSaveBtn.style.display = 'none';
-            });
-        });
+  initSearchableSelects(document.getElementById('transferForm'));
+}
 
-        // Delete
-        container.querySelectorAll('.btn-delete-transfer').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                if(confirm('Transfer kaydını silmek istediğinize emin misiniz?')) {
-                    DB.transfers.delete(e.currentTarget.dataset.id);
-                    DB.logs.add('Bir transfer kaydı silindi.', 'warning');
-                    render();
-                }
-            });
-        });
-    };
+function showManifest(transfer, participantsById) {
+  if (!transfer) return;
 
-    render();
+  const passengers = (transfer.passengers ?? [])
+    .map((id) => participantsById.get(id))
+    .filter(Boolean);
+
+  openModal({
+    title: 'Transfer Manifestosu',
+    width: '640px',
+    content: html`
+      <div style="background:var(--slate-50);padding:16px;border-radius:var(--radius-md);margin-bottom:24px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:0.9rem;">
+          <div><strong>Araç:</strong> ${transfer.vehicle}</div>
+          <div><strong>Güzergah:</strong> ${DIRECTIONS[transfer.direction] ?? '-'}</div>
+          <div><strong>Tarih / Saat:</strong> ${formatShortDate(transfer.date)} ${transfer.time ?? ''}</div>
+          <div><strong>Şoför:</strong> ${transfer.driver || '-'} (${transfer.driverPhone || '-'})</div>
+        </div>
+      </div>
+      <h4 style="font-size:1rem;font-weight:600;margin-bottom:12px;">Yolcular (${passengers.length})</h4>
+      ${passengers.length === 0
+        ? raw('<p style="color:var(--slate-400);text-align:center;padding:16px;">Bu transfere yolcu atanmamış.</p>')
+        : raw(html`
+          <table class="data-table">
+            <thead><tr><th>Misafir</th><th>Firma</th><th>Telefon</th></tr></thead>
+            <tbody>
+              ${passengers.map((pax) => raw(html`
+                <tr>
+                  <td style="font-weight:600;">${pax.firstName} ${pax.lastName}</td>
+                  <td>${pax.company || '-'}</td>
+                  <td>${pax.phone || '-'}</td>
+                </tr>
+              `))}
+            </tbody>
+          </table>
+        `)}
+    `,
+  });
 }

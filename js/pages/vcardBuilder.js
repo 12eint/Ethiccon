@@ -1,3 +1,5 @@
+import { showToast, refreshIcons } from '../core/ui.js';
+
 export function renderVcardBuilder(container) {
   let excelData = [];
   let headers = [];
@@ -91,7 +93,7 @@ export function renderVcardBuilder(container) {
       
       try {
         // Parse with SheetJS
-        const workbook = XLSX.read(data, { type: 'binary' });
+        const workbook = XLSX.read(data, { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         
@@ -113,17 +115,38 @@ export function renderVcardBuilder(container) {
             select.innerHTML = optionsHTML;
         });
 
+        // Sütun adlarını otomatik tahmin et — çoğu dosyada elle seçim gerekmez.
+        autoGuessMapping(headers);
+
         // Enable mapping section
         mappingSection.style.opacity = '1';
         mappingSection.style.pointerEvents = 'auto';
+        showToast(`${excelData.length} satır okundu. Sütun eşleştirmesini kontrol edin.`);
 
       } catch (err) {
         console.error(err);
-        alert('Dosya okunurken bir hata oluştu. SheetJS yüklü mü?');
+        alert('Dosya okunurken bir hata oluştu. Dosyanın .xlsx veya .csv olduğundan emin olun.');
       }
     };
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   });
+
+  /** Başlıklardan hangi sütunun hangi alana denk geldiğini tahmin eder. */
+  function autoGuessMapping(columns) {
+    const patterns = {
+      mapFirstName: /^(ad|isim|first ?name|name)$/i,
+      mapLastName: /^(soyad|soyisim|last ?name|surname)$/i,
+      mapPhone: /(telefon|gsm|phone|cep|mobile)/i,
+      mapEmail: /(e-?posta|e-?mail|mail)/i,
+      mapCompany: /(firma|kurum|şirket|sirket|company|organization)/i,
+      mapTitle: /(unvan|ünvan|title|görev|gorev)/i,
+    };
+
+    Object.entries(patterns).forEach(([selectId, pattern]) => {
+      const match = columns.find((column) => pattern.test(String(column).trim()));
+      if (match) container.querySelector(`#${selectId}`).value = match;
+    });
+  }
 
   // Handle Generate
   generateBtn.addEventListener('click', () => {
@@ -139,36 +162,49 @@ export function renderVcardBuilder(container) {
           return;
       }
 
-      let vcardContent = '';
+      // vCard 3.0 satır sonu olarak CRLF ister (RFC 6350).
+      // Önceki sürüm '\\n' yazdığı için dosyaya gerçek satır sonu yerine
+      // düz metin "\n" giriyordu ve üretilen .vcf hiçbir yere aktarılamıyordu.
+      const CRLF = '\r\n';
+      // Ad, kurum gibi alanlarda geçen ; , \ karakterleri kaçışlanmalı.
+      const esc = (value) => String(value).replace(/([\\;,])/g, '\\$1');
+
+      const cards = [];
 
       excelData.forEach(row => {
-          const fn = row[mapFirstName] || '';
-          const ln = row[mapLastName] || '';
-          const phone = row[mapPhone] || '';
-          const email = mapEmail ? (row[mapEmail] || '') : '';
-          const company = mapCompany ? (row[mapCompany] || '') : '';
-          const title = mapTitle ? (row[mapTitle] || '') : '';
+          const fn = String(row[mapFirstName] ?? '').trim();
+          const ln = String(row[mapLastName] ?? '').trim();
+          const phone = String(row[mapPhone] ?? '').trim();
+          const email = mapEmail ? String(row[mapEmail] ?? '').trim() : '';
+          const company = mapCompany ? String(row[mapCompany] ?? '').trim() : '';
+          const title = mapTitle ? String(row[mapTitle] ?? '').trim() : '';
 
-          if (!fn && !ln) return; // Skip empty rows
+          if (!fn && !ln) return; // Boş satırları atla
 
-          vcardContent += 'BEGIN:VCARD\\n';
-          vcardContent += 'VERSION:3.0\\n';
-          vcardContent += `N:${ln};${fn};;;\\n`;
-          vcardContent += `FN:${fn} ${ln}\\n`;
-          if (company) vcardContent += `ORG:${company}\\n`;
-          if (title) vcardContent += `TITLE:${title}\\n`;
-          if (phone) vcardContent += `TEL;TYPE=CELL:${phone}\\n`;
-          if (email) vcardContent += `EMAIL;TYPE=PREF,INTERNET:${email}\\n`;
-          vcardContent += 'END:VCARD\\n';
+          const lines = [
+              'BEGIN:VCARD',
+              'VERSION:3.0',
+              `N:${esc(ln)};${esc(fn)};;;`,
+              `FN:${esc(`${fn} ${ln}`.trim())}`,
+          ];
+          if (company) lines.push(`ORG:${esc(company)}`);
+          if (title) lines.push(`TITLE:${esc(title)}`);
+          if (phone) lines.push(`TEL;TYPE=CELL:${phone}`);
+          if (email) lines.push(`EMAIL;TYPE=PREF,INTERNET:${email}`);
+          lines.push('END:VCARD');
+
+          cards.push(lines.join(CRLF));
       });
 
-      if (!vcardContent) {
+      if (cards.length === 0) {
           alert('Geçerli kayıt bulunamadı.');
           return;
       }
 
-      // Download file
-      const blob = new Blob([vcardContent], { type: 'text/vcard' });
+      const vcardContent = cards.join(CRLF) + CRLF;
+
+      // Türkçe karakterlerin doğru okunması için BOM'lu UTF-8.
+      const blob = new Blob(['﻿', vcardContent], { type: 'text/vcard;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -177,5 +213,7 @@ export function renderVcardBuilder(container) {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+
+      showToast(`${cards.length} kişilik rehber dosyası indirildi.`);
   });
 }
