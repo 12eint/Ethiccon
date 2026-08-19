@@ -517,8 +517,11 @@ async function downloadInvoicePdf(proforma, button) {
 
   const stage = document.createElement('div');
   stage.setAttribute('aria-hidden', 'true');
+  // Sahne belge akışının dışında ama ölçülebilir olmalı: html2canvas
+  // display:none veya visibility:hidden elemanları çizemez, bu yüzden
+  // gizlemek yerine ekranın dışına kaydırılıyor.
   stage.style.cssText = `
-    position:fixed; top:0; left:-10000px;
+    position:absolute; top:0; left:-10000px;
     width:${A4_WIDTH_PX}px; padding:40px;
     background:#ffffff; color:#1e293b;
     font-family:var(--font-family); line-height:1.5;

@@ -1,4 +1,4 @@
-import { showToast, refreshIcons } from '../core/ui.js';
+import { showToast, refreshIcons, escapeHtml } from '../core/ui.js';
 
 export function renderVcardBuilder(container) {
   let excelData = [];
@@ -110,7 +110,10 @@ export function renderVcardBuilder(container) {
         excelData = XLSX.utils.sheet_to_json(worksheet);
 
         // Populate selects
-        const optionsHTML = '<option value="">Seçiniz...</option>' + headers.map(h => `<option value="${h}">${h}</option>`).join('');
+        // Başlıklar kullanıcının yüklediği dosyadan geliyor; kaçışlanmadan
+        // basılırsa hazırlanmış bir .xlsx ile script çalıştırılabilir.
+        const optionsHTML = '<option value="">Seçiniz...</option>'
+          + headers.map(h => `<option value="${escapeHtml(h)}">${escapeHtml(h)}</option>`).join('');
         selects.forEach(select => {
             select.innerHTML = optionsHTML;
         });

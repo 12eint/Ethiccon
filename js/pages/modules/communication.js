@@ -1,7 +1,13 @@
 import { DB } from '../../core/store.js';
 import { initSearchableSelects, showToast, refreshIcons, escapeHtml } from '../../core/ui.js';
 
-export function renderCommunicationModule(container, eventId) {
+/**
+ * @param {HTMLElement} container
+ * @param {string} eventId
+ * @param {() => void} [onChange] - üst sayfayı tazeler; sekme sözleşmesi gereği
+ *   tüm modüller aynı imzayı alır (bu modül sayaç etkilemediği için kullanmaz).
+ */
+export function renderCommunicationModule(container, eventId, onChange) {
     const render = () => {
         const participants = DB.participants.getByEventId(eventId);
         const sponsors = DB.sponsors.getByEventId(eventId);
