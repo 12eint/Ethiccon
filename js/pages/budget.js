@@ -10,7 +10,7 @@ import { DB } from '../core/store.js';
 import { createTable } from '../components/table.js';
 import { navigateTo, paths } from '../core/router.js';
 import { formatAmount } from '../core/format.js';
-import { html, raw, refreshIcons, emptyState, escapeHtml } from '../core/ui.js';
+import { html, raw, refreshIcons, emptyState, escapeHtml, alertBand } from '../core/ui.js';
 import { isAdmin, visibleEvents } from '../core/auth.js';
 import { eventFinancials } from '../core/pricing.js';
 
@@ -59,12 +59,11 @@ export function renderBudget(container) {
                 `${rows.length} organizasyon`))}
     </div>
 
-    ${admin && totalPending > 0 ? raw(html`
-      <div style="background:var(--warning-light);border:1px solid var(--warning);border-radius:var(--radius-md);padding:14px 16px;margin-bottom:24px;display:flex;align-items:center;gap:10px;font-size:0.9rem;color:#92400e;">
-        <i data-lucide="clock" style="width:18px;height:18px;flex-shrink:0;"></i>
-        <span>Toplam <strong>${formatAmount(totalPending)}</strong> tutarında saha harcaması onayınızı bekliyor.</span>
-      </div>
-    `) : ''}
+    ${admin && totalPending > 0 ? raw(alertBand({
+      type: 'warning',
+      icon: 'clock',
+      message: `Toplam ${formatAmount(totalPending)} tutarında saha harcaması onayınızı bekliyor.`,
+    })) : ''}
 
     <div class="card"><div id="budgetReportTable"></div></div>
   `;

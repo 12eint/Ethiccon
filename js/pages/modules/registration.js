@@ -8,7 +8,7 @@
 import { DB } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
 import { formatAmount } from '../../core/format.js';
-import { html, raw, showToast, refreshIcons, initSearchableSelects, bindClick } from '../../core/ui.js';
+import { html, raw, showToast, refreshIcons, initSearchableSelects, bindClick, alertBand } from '../../core/ui.js';
 import { getCurrentUser, isAdmin, hasPermission } from '../../core/auth.js';
 import { registrationPrice, ROOM_TYPES, ROOM_TYPE_LABELS } from '../../core/pricing.js';
 
@@ -68,12 +68,11 @@ export function renderRegistrationModule(container, eventId, onChange) {
       </div>
     </div>
 
-    ${pricesUnset ? raw(html`
-      <div style="background:var(--warning-light);border:1px solid var(--warning);border-radius:var(--radius-md);padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:8px;font-size:0.875rem;color:#92400e;">
-        <i data-lucide="alert-triangle" style="width:18px;height:18px;flex-shrink:0;"></i>
-        <span>Bu organizasyonun erken/geç kayıt fiyatı belirlenmemiş. Etkinlikler sayfasından düzenleyerek fiyatlandırma yapın; aksi halde kayıt geliri sıfır görünür.</span>
-      </div>
-    `) : ''}
+    ${pricesUnset ? raw(alertBand({
+      type: 'warning',
+      message: 'Bu organizasyonun erken/geç kayıt fiyatı belirlenmemiş; kayıt geliri sıfır hesaplanır.',
+      action: { label: 'Ayarlara Git', attrs: 'data-tab-link="settings"' },
+    })) : ''}
 
     <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
       <div style="position:relative;flex:1;min-width:220px;">

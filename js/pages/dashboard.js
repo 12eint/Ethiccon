@@ -4,7 +4,7 @@
 import { DB } from '../core/store.js';
 import { createBarChart, createDoughnutChart, destroyCharts } from '../components/charts.js';
 import { formatAmount, formatTime } from '../core/format.js';
-import { html, raw, refreshIcons, bindClick } from '../core/ui.js';
+import { html, raw, refreshIcons, bindClick, alertBand } from '../core/ui.js';
 import { getCurrentUser, isAdmin, visibleEvents } from '../core/auth.js';
 import { eventFinancials, ROOM_TYPES } from '../core/pricing.js';
 import { navigateTo } from '../core/router.js';
@@ -87,11 +87,12 @@ export function renderDashboard(container) {
     </div>
 
     ${admin && totals.pending > 0 ? raw(html`
-      <div style="background:var(--warning-light);border:1px solid var(--warning);border-radius:var(--radius-md);padding:14px 16px;margin-bottom:24px;display:flex;align-items:center;gap:10px;font-size:0.9rem;color:#92400e;">
-        <i data-lucide="clock" style="width:18px;height:18px;flex-shrink:0;"></i>
-        <span>Onayınızı bekleyen <strong>${formatAmount(totals.pending)}</strong> tutarında saha harcaması var.</span>
-        <button class="btn btn-sm btn-secondary" data-go="budget" style="margin-left:auto;">Bütçeye Git</button>
-      </div>
+      ${raw(alertBand({
+        type: 'warning',
+        icon: 'clock',
+        message: `Onayınızı bekleyen ${formatAmount(totals.pending)} tutarında saha harcaması var.`,
+        action: { label: 'Bütçeye Git', attrs: 'data-go="budget"' },
+      }))}
     `) : ''}
 
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:24px;margin-bottom:24px;">

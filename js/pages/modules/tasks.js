@@ -38,10 +38,10 @@ export function renderTasksModule(container, eventId, onChange) {
         `;
 
         let html = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-                <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700;">Görev Yönetimi (Kanban)</h3>
-                <button class="btn btn-primary" id="btnNewTask">
-                    <i data-lucide="plus"></i> Yeni Görev Ekle
+            <div class="page-header">
+                <h2>Görev Yönetimi</h2>
+                <button class="btn btn-primary btn-sm" id="btnNewTask">
+                    <i data-lucide="plus"></i> Yeni Görev
                 </button>
             </div>
             

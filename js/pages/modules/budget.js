@@ -6,7 +6,7 @@ import { DB } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
 import { createDoughnutChart, destroyCharts } from '../../components/charts.js';
 import { formatAmount, formatShortDate, toAscii } from '../../core/format.js';
-import { html, raw, showToast, refreshIcons, bindClick } from '../../core/ui.js';
+import { html, raw, showToast, refreshIcons, bindClick, alertBand } from '../../core/ui.js';
 import { getCurrentUser, isAdmin } from '../../core/auth.js';
 import { eventFinancials } from '../../core/pricing.js';
 
@@ -67,8 +67,30 @@ export function renderBudgetModule(container, eventId, onChange) {
     : (finance.expense > 0 ? 100 : 0);
   const pending = rows.filter((r) => r.status === 'pending' && r.type === 'expense');
 
+  // Modül düzen sözleşmesi: başlık + eylemler, uyarı bandı, sonra içerik.
   container.innerHTML = html`
-    ${locked ? raw(lockBanner(admin)) : ''}
+    <div class="page-header">
+      <h2>${admin ? 'Finansal Kokpit' : 'Saha Cüzdanı'}</h2>
+      <div style="display:flex;gap:8px;">
+        ${admin ? raw('<button class="btn btn-secondary btn-sm" data-action="pdf"><i data-lucide="file-down"></i> PDF Raporu</button>') : ''}
+        ${(!locked || admin) ? raw(html`
+          <button class="btn btn-primary btn-sm" data-action="add">
+            <i data-lucide="plus"></i> ${admin ? 'Yeni İşlem' : 'Fiş / Masraf Ekle'}
+          </button>
+        `) : ''}
+      </div>
+    </div>
+
+    ${locked ? raw(alertBand({
+      type: 'danger',
+      icon: 'lock',
+      title: 'Haftalık Bütçe Kilitli',
+      message: admin
+        ? 'Cuma 16:00 kilidi devrede. Sorumluların işlem yapabilmesi için bütçeyi onaylayın.'
+        : 'Cuma 16:00 itibarıyla bütçe yönetici onayına kadar dondurulmuştur.',
+      action: admin ? { label: 'Onayla ve Kilidi Aç', attrs: 'data-action="unlock"' } : null,
+    })) : ''}
+
     ${admin ? raw(adminSummary(finance)) : raw(managerSummary(finance, plannedTotal, usagePercent))}
     ${admin && pending.length > 0 ? raw(pendingTable(pending)) : ''}
     ${raw(limitCards(limits, finance.categoryExpenses, admin))}
@@ -157,29 +179,6 @@ export function renderBudgetModule(container, eventId, onChange) {
 }
 
 // ── Parçalar ─────────────────────────────────────────────────────────────
-
-function lockBanner(admin) {
-  return html`
-    <div style="background:var(--danger-light);color:var(--danger);padding:16px;border-radius:var(--radius-md);border:1px solid rgba(239,68,68,0.2);margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
-      <div style="display:flex;align-items:center;gap:12px;">
-        <i data-lucide="lock" style="width:24px;height:24px;"></i>
-        <div>
-          <h4 style="margin:0;font-size:1rem;font-weight:700;">Haftalık Bütçe Kilitli</h4>
-          <p style="margin:4px 0 0;font-size:0.85rem;opacity:0.9;">
-            ${admin
-              ? 'Cuma 16:00 kilidi devrede. Sorumluların işlem yapabilmesi için bütçeyi onaylayın.'
-              : 'Cuma 16:00 itibarıyla bütçe yönetici onayına kadar dondurulmuştur.'}
-          </p>
-        </div>
-      </div>
-      ${admin ? raw(html`
-        <button class="btn btn-primary" data-action="unlock" style="background:var(--danger);box-shadow:none;">
-          <i data-lucide="unlock" style="width:16px;"></i> Bütçeyi Onayla ve Kilidi Aç
-        </button>
-      `) : ''}
-    </div>
-  `;
-}
 
 function adminSummary(finance) {
   const profitColor = finance.netProfit >= 0 ? 'var(--primary-700)' : 'var(--danger)';
@@ -347,16 +346,8 @@ function transactionsTable(rows, admin, locked) {
 
   return html`
     <div class="card">
-      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+      <div class="card-header">
         <h3 class="card-title">${admin ? 'Tüm İşlemler (Gelir / Gider)' : 'Saha Harcamalarım'}</h3>
-        <div style="display:flex;gap:8px;">
-          ${admin ? raw('<button class="btn btn-secondary btn-sm" data-action="pdf"><i data-lucide="file-down" style="width:14px;"></i> PDF Raporu</button>') : ''}
-          ${(!locked || admin) ? raw(html`
-            <button class="btn btn-primary btn-sm" data-action="add">
-              <i data-lucide="plus" style="width:14px;"></i> ${admin ? 'Yeni İşlem' : 'Fiş / Masraf Ekle'}
-            </button>
-          `) : ''}
-        </div>
       </div>
       <div class="table-container">
         <table class="data-table">

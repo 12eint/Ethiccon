@@ -906,3 +906,37 @@ body.sidebar-collapsed .sidebar-nav-item { justify-content: center; }
   margin: 0 4px;
   flex-shrink: 0;
 }
+
+/* ─── Uyarı bandı (core/ui.js → alertBand) ────────────────────────── */
+
+.alert-band {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  border: 1px solid;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+}
+
+.alert-band-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.alert-band-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.alert-band-body strong { font-weight: 700; }
+.alert-band-body span { line-height: 1.45; }
+
+.alert-band-action {
+  flex-shrink: 0;
+  margin-left: auto;
+}
