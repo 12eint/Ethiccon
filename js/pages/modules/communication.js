@@ -1,5 +1,5 @@
 import { DB } from '../../core/store.js';
-import { initSearchableSelects, showToast, refreshIcons, escapeHtml } from '../../core/ui.js';
+import { initSearchableSelects, showToast, refreshIcons, escapeHtml, alertBand } from '../../core/ui.js';
 
 /**
  * @param {HTMLElement} container
@@ -13,15 +13,15 @@ export function renderCommunicationModule(container, eventId, onChange) {
         const sponsors = DB.sponsors.getByEventId(eventId);
 
         let html = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-                <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700;">Toplu İletişim & E-Posta Gönderimi</h3>
-                <div class="badge badge-warning"><i data-lucide="alert-triangle" style="width:14px; margin-right:4px;"></i>Önizleme — gönderim yok</div>
+            <div class="page-header">
+                <h2>Toplu İletişim</h2>
+                <span class="badge badge-warning"><i data-lucide="alert-triangle" style="width:14px;margin-right:4px;"></i>Önizleme — gönderim yok</span>
             </div>
 
-            <div style="background: var(--warning-light); border: 1px solid var(--warning); border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 24px; display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: #92400e;">
-                <i data-lucide="info" style="width:18px; height:18px; flex-shrink:0;"></i>
-                <span>Bu modül henüz gerçek e-posta göndermiyor. Bir SMTP sunucusu bağlanana kadar "Gönder" yalnızca kayıt oluşturur.</span>
-            </div>
+            ${alertBand({
+                type: 'warning',
+                message: 'Bu modül henüz gerçek e-posta göndermiyor. Bir SMTP sunucusu bağlanana kadar "Gönder" yalnızca kayıt oluşturur.',
+            })}
             
             <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 24px;">
                 <!-- Left Sidebar: Selection -->

@@ -10,13 +10,12 @@ import { DB } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
 import { formatCurrency, formatDate } from '../../core/format.js';
 import { html, raw, showToast, refreshIcons, emptyState, bindClick } from '../../core/ui.js';
-import { getAccommodationConfig, accommodationPrice, registrationPrice } from '../../core/pricing.js';
+import {
+  getAccommodationConfig, accommodationPrice, registrationPrice,
+  lineTotal, subtotalOf, proformaTotals,
+} from '../../core/pricing.js';
 
 const VAT_DEFAULT = 20;
-
-const lineTotal = (item) => (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
-const subtotalOf = (items) => items.reduce((sum, item) => sum + lineTotal(item), 0);
-const grandTotal = (items, vatRate) => subtotalOf(items) * (1 + (Number(vatRate) || 0) / 100);
 
 export function renderProformaModule(container, eventId, onChange) {
   const refresh = () => (onChange ? onChange() : renderProformaModule(container, eventId));
@@ -46,16 +45,15 @@ export function renderProformaModule(container, eventId, onChange) {
             </thead>
             <tbody>
               ${proformas.map((proforma) => {
-                const items = DB.proformaItems.getByProformaId(proforma.id);
-                const total = grandTotal(items, proforma.vatRate);
-                const paid = Number(proforma.paymentReceived) || 0;
-                const balance = total - paid;
+                const { total, paid, balance, overdue } = proformaTotals(proforma);
                 return raw(html`
                   <tr>
                     <td><strong>${proforma.invoiceNo}</strong></td>
                     <td>${resolveCompany(proforma).name || '-'}</td>
                     <td>${formatDate(proforma.issueDate)}</td>
-                    <td>${formatDate(proforma.dueDate)}</td>
+                    <td style="${overdue ? 'color:var(--danger);font-weight:600;' : ''}">
+                      ${formatDate(proforma.dueDate)}${overdue ? raw(' <span class="badge badge-danger">Vadesi geçti</span>') : ''}
+                    </td>
                     <td style="font-weight:600;">${formatCurrency(total)}</td>
                     <td style="color:var(--success);font-weight:600;">${formatCurrency(paid)}</td>
                     <td style="color:${balance > 0.005 ? 'var(--danger)' : 'var(--slate-500)'};font-weight:600;">

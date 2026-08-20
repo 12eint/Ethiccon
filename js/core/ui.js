@@ -99,6 +99,35 @@ export function initSearchableSelects(scope = document) {
   });
 }
 
+const BAND_STYLES = {
+  info: { bg: 'var(--info-light)', border: 'var(--info)', text: '#1e40af', icon: 'info' },
+  success: { bg: 'var(--success-light)', border: 'var(--success)', text: '#065f46', icon: 'check-circle' },
+  warning: { bg: 'var(--warning-light)', border: 'var(--warning)', text: '#92400e', icon: 'alert-triangle' },
+  danger: { bg: 'var(--danger-light)', border: 'var(--danger)', text: '#991b1b', icon: 'alert-circle' },
+};
+
+/**
+ * Modüllerin üstünde beliren uyarı/bilgi bandı.
+ * Daha önce her modül kendi bandını elle kuruyordu; renkler ve iç boşluklar
+ * birbirini tutmuyordu.
+ *
+ * @param {{type?: 'info'|'success'|'warning'|'danger', title?: string,
+ *   message: string, icon?: string, action?: {label: string, attrs?: string}}} options
+ */
+export function alertBand({ type = 'info', title = '', message, icon, action }) {
+  const style = BAND_STYLES[type] ?? BAND_STYLES.info;
+  return html`
+    <div class="alert-band" style="background:${style.bg};border-color:${style.border};color:${style.text};">
+      <i data-lucide="${icon ?? style.icon}" class="alert-band-icon"></i>
+      <div class="alert-band-body">
+        ${title ? raw(html`<strong>${title}</strong>`) : ''}
+        <span>${message}</span>
+      </div>
+      ${action ? raw(`<button class="btn btn-sm btn-secondary alert-band-action" ${action.attrs ?? ''}>${escapeHtml(action.label)}</button>`) : ''}
+    </div>
+  `;
+}
+
 /** Boş liste durumu için ortak blok. */
 export function emptyState({ icon = 'inbox', title, text = '' }) {
   return html`

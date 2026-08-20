@@ -28,7 +28,7 @@ export function renderEvents(container) {
     <div class="card"><div id="eventsTable"></div></div>
   `;
 
-  container.querySelector('#addEventBtn')?.addEventListener('click', () => openEventModal(null, reload));
+  container.querySelector('#addEventBtn')?.addEventListener('click', () => openEventModal(reload));
 
   const host = container.querySelector('#eventsTable');
 
@@ -88,13 +88,15 @@ export function renderEvents(container) {
     ],
     actions: [
       { icon: 'eye', className: 'view', title: 'Aç', onClick: (row) => navigateTo(paths.org(row.id)) },
+      // Düzenleme organizasyonun Ayarlar sekmesinde yapılır; burada yalnızca
+      // oraya kısayol var, böylece aynı alanlar iki yerde düzenlenmiyor.
+      {
+        icon: 'sliders',
+        className: 'edit',
+        title: 'Ayarlar',
+        onClick: (row) => navigateTo(paths.org(row.id, 'settings')),
+      },
       ...(admin ? [
-        {
-          icon: 'pencil',
-          className: 'edit',
-          title: 'Düzenle',
-          onClick: (row) => openEventModal(DB.events.getById(row.id), reload),
-        },
         {
           icon: 'trash-2',
           className: 'delete',
@@ -134,85 +136,46 @@ function confirmDelete(row, onDone) {
   onDone();
 }
 
-function openEventModal(event, onDone) {
-  const isEdit = Boolean(event);
-  const data = event ?? {};
-  const users = DB.users.getAll();
-
+/**
+ * Yeni organizasyon oluşturma.
+ * Yalnızca kimlik bilgileri sorulur; fiyatlandırma, limitler ve sorumlu
+ * ataması organizasyonun Ayarlar sekmesinde yapılır — aynı alanların iki
+ * yerde düzenlenmesini önlemek için.
+ */
+function openEventModal(onDone) {
   openModal({
-    title: isEdit ? 'Etkinlik Düzenle' : 'Yeni Etkinlik',
-    width: '640px',
-    saveText: isEdit ? 'Güncelle' : 'Kaydet',
+    title: 'Yeni Organizasyon',
+    width: '560px',
+    saveText: 'Oluştur',
     content: html`
       <form id="eventForm">
         <div class="form-group">
-          <label class="form-label">Etkinlik Adı *</label>
-          <input class="form-input" type="text" name="name" value="${data.name ?? ''}" required>
+          <label class="form-label">Organizasyon Adı *</label>
+          <input class="form-input" type="text" name="name" placeholder="Örn: 15. Ulusal Kardiyoloji Kongresi" required>
         </div>
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Şehir</label>
-            <input class="form-input" type="text" name="city" value="${data.city ?? ''}">
+            <input class="form-input" type="text" name="city">
           </div>
           <div class="form-group">
             <label class="form-label">Mekan</label>
-            <input class="form-input" type="text" name="venue" value="${data.venue ?? ''}">
+            <input class="form-input" type="text" name="venue">
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Başlangıç Tarihi</label>
-            <input class="form-input" type="date" name="startDate" value="${data.startDate ?? ''}">
+            <input class="form-input" type="date" name="startDate">
           </div>
           <div class="form-group">
             <label class="form-label">Bitiş Tarihi</label>
-            <input class="form-input" type="date" name="endDate" value="${data.endDate ?? ''}">
+            <input class="form-input" type="date" name="endDate">
           </div>
         </div>
-
-        <div style="border-top:1px solid var(--slate-100);margin:20px 0 16px;padding-top:16px;">
-          <h4 style="font-size:0.95rem;font-weight:700;margin:0 0 4px;">Kayıt Fiyatlandırması</h4>
-          <p style="font-size:0.8rem;color:var(--slate-500);margin:0 0 12px;">
-            Misafir kayıtlarının geliri bu fiyatlardan hesaplanır. Boş bırakılırsa kayıt geliri sıfır görünür.
-          </p>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Erken Kayıt Ücreti (₺)</label>
-              <input class="form-input" type="number" name="earlyRegPrice" value="${data.earlyRegPrice ?? ''}" min="0" step="0.01">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Geç Kayıt Ücreti (₺)</label>
-              <input class="form-input" type="number" name="lateRegPrice" value="${data.lateRegPrice ?? ''}" min="0" step="0.01">
-            </div>
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Kontenjan</label>
-            <input class="form-input" type="number" name="capacity" value="${data.capacity ?? ''}" min="0">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Durum</label>
-            <select class="form-select" name="status">
-              ${Object.entries(STATUS_MAP).map(([value, meta]) => raw(html`
-                <option value="${value}" ${data.status === value ? raw('selected') : ''}>${meta.label}</option>
-              `))}
-            </select>
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Sorumlu Ata</label>
-          <select class="form-select" name="assignedManagerId">
-            <option value="">(Atanmadı — herkes görebilir)</option>
-            ${users.map((user) => raw(html`
-              <option value="${user.id}" ${data.assignedManagerId === user.id ? raw('selected') : ''}>${user.name}</option>
-            `))}
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Açıklama</label>
-          <textarea class="form-textarea" name="description" rows="3">${data.description ?? ''}</textarea>
+        <div style="font-size:0.8rem;color:var(--info);display:flex;gap:8px;padding:12px;background:var(--info-light);border-radius:var(--radius-md);margin-top:8px;">
+          <i data-lucide="info" style="width:16px;flex-shrink:0;"></i>
+          <span>Kayıt fiyatları, bütçe limitleri ve sorumlu ataması oluşturduktan sonra organizasyonun Ayarlar sekmesinden yapılır.</span>
         </div>
       </form>
     `,
@@ -221,7 +184,7 @@ function openEventModal(event, onDone) {
       const values = Object.fromEntries(new FormData(form).entries());
 
       if (!values.name.trim()) {
-        showToast('Etkinlik adı zorunludur.', 'error');
+        showToast('Organizasyon adı zorunludur.', 'error');
         return;
       }
       if (values.startDate && values.endDate && values.endDate < values.startDate) {
@@ -229,21 +192,13 @@ function openEventModal(event, onDone) {
         return;
       }
 
-      values.capacity = Number(values.capacity) || 0;
-      values.earlyRegPrice = Number(values.earlyRegPrice) || 0;
-      values.lateRegPrice = Number(values.lateRegPrice) || 0;
-
-      if (isEdit) {
-        DB.events.update(event.id, values);
-        showToast('Etkinlik güncellendi.');
-      } else {
-        DB.events.create(values);
-        DB.logs.add(`Yeni organizasyon oluşturuldu: ${values.name}`, 'success');
-        showToast('Etkinlik oluşturuldu.');
-      }
-
+      const created = DB.events.create({ ...values, status: 'planned', capacity: 0 });
+      DB.logs.add(`Yeni organizasyon oluşturuldu: ${values.name}`, 'success');
+      showToast('Organizasyon oluşturuldu. Ayarlar sekmesinden fiyatlandırmayı tamamlayın.');
       closeModal();
       onDone();
+      // Kullanıcıyı doğrudan eksik kalan ayarlara yönlendir.
+      navigateTo(paths.org(created.id, 'settings'));
     },
   });
 }
