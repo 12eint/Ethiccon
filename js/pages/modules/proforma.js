@@ -477,6 +477,9 @@ function invoiceMarkup(proforma) {
 /** A4 genişliği, 96 dpi. PDF her zaman bu ölçüde üretilir. */
 const A4_WIDTH_PX = 794;
 
+/** Kenar boşluğu (~11 mm). jsPDF margin'i yerine sahnenin padding'i kullanılır. */
+const A4_PADDING_PX = 40;
+
 /** Ekranda önizleme çizer ve indirme düğmesini bağlar. */
 function showPrintable(host, proformaId) {
   const proforma = DB.proformas.getById(proformaId);
@@ -500,14 +503,23 @@ function showPrintable(host, proformaId) {
 }
 
 /**
- * PDF'i ekrandaki önizlemeden değil, ekran dışına yerleştirilen sabit
- * genişlikte ayrı bir kopyadan üretir.
+ * PDF'i, belgenin en başına geçici olarak yerleştirilen temiz bir sahneden
+ * üretir.
  *
- * Canlı DOM'u yakalamak üç soruna yol açıyordu: html2canvas sayfa kaydırma
- * konumunu hesaba katmadığı için belge sayfanın ortasından başlayıp alttan
- * kesiliyordu; çıktı genişliği tarayıcı penceresine göre değiştiği için dar
- * pencerede fatura taşıyordu; kartın gölgesi ve giriş animasyonu görüntüye
- * karışıyordu.
+ * Neden ekrandaki önizleme doğrudan yakalanmıyor: önizlemenin atası olan
+ * `.content` elemanı `.page-fade-in` sınıfıyla `transform: translateY()`
+ * uyguluyor. Dönüşümlü bir ata yeni bir kapsayıcı blok oluşturuyor ve
+ * html2canvas'ın koordinat hesabını kaydırıyor — belge sayfanın ortasından
+ * başlayıp sağdan kesiliyordu.
+ *
+ * Neden ekran dışına (left:-10000px) taşınmıyor: html2pdf elemanı zaten
+ * kendi gizli kabına klonluyor; ikinci bir ekran dışı kaydırma ya da
+ * html2canvas'a windowWidth/scrollX/scrollY geçirmek bu telafiyle çakışıp
+ * tamamen boş PDF üretiyor.
+ *
+ * Bu yüzden sahne `<body>`'nin doğrudan çocuğu olarak belge başına konuyor,
+ * uygulama yakalama süresince gizleniyor: dönüşümlü ata yok, kaydırma yok,
+ * genişlik sabit.
  */
 async function downloadInvoicePdf(proforma, button) {
   if (typeof html2pdf === 'undefined') {
@@ -515,43 +527,42 @@ async function downloadInvoicePdf(proforma, button) {
     return;
   }
 
+  const app = document.querySelector('.app-container');
   const stage = document.createElement('div');
   stage.setAttribute('aria-hidden', 'true');
-  // Sahne belge akışının dışında ama ölçülebilir olmalı: html2canvas
-  // display:none veya visibility:hidden elemanları çizemez, bu yüzden
-  // gizlemek yerine ekranın dışına kaydırılıyor.
+  // Kenar boşluğu jsPDF'e değil sahnenin padding'ine bırakılıyor (aşağıya bak).
   stage.style.cssText = `
-    position:absolute; top:0; left:-10000px;
-    width:${A4_WIDTH_PX}px; padding:40px;
+    width:${A4_WIDTH_PX}px; padding:${A4_PADDING_PX}px; margin:0;
     background:#ffffff; color:#1e293b;
     font-family:var(--font-family); line-height:1.5;
   `;
   stage.innerHTML = invoiceMarkup(proforma);
-  document.body.appendChild(stage);
 
   const originalLabel = button.innerHTML;
+  const scrollBefore = window.scrollY;
   button.disabled = true;
   button.textContent = 'PDF hazırlanıyor...';
 
   try {
-    // Yazı tipleri yüklenmeden yakalanırsa metin yanlış ölçüde çizilir.
     if (document.fonts?.ready) await document.fonts.ready;
+
+    document.body.prepend(stage);
+    if (app) app.style.display = 'none';
+    window.scrollTo(0, 0);
+    // Gizleme ve yerleştirmenin yerleşime yansıması için bir kare bekle.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    console.info('[proforma] yakalanan sahne:', stage.offsetWidth, 'x', stage.offsetHeight);
 
     await html2pdf()
       .set({
+        // margin:0 kasıtlı. jsPDF kenar boşluğu verildiğinde görüntüyü sayfa
+        // içerik alanından geniş yerleştiriyor ve sağdan kesiyordu; sahne
+        // tam sayfa genişliğine eşlenip boşluk padding ile veriliyor.
         margin: 0,
         filename: `proforma_${(proforma.invoiceNo ?? 'belge').replace(/\s+/g, '_')}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          logging: false,
-          backgroundColor: '#ffffff',
-          // Ekran dışı sahne sayfa kaydırmasından etkilenmemeli.
-          scrollX: 0,
-          scrollY: 0,
-          windowWidth: A4_WIDTH_PX,
-        },
+        html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
         // Uzun faturalar bölünebilsin ama satırlar ve toplam bloğu kesilmesin.
         pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.pf-block'] },
@@ -565,6 +576,8 @@ async function downloadInvoicePdf(proforma, button) {
     showToast('PDF oluşturulurken hata oluştu.', 'error');
   } finally {
     stage.remove();
+    if (app) app.style.display = '';
+    window.scrollTo(0, scrollBefore);
     button.disabled = false;
     button.innerHTML = originalLabel;
     refreshIcons(button);
