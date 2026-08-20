@@ -87,7 +87,6 @@ const participants = createCollection('participants', {
 const flights = createCollection('flights');
 const accommodationsBase = createCollection('accommodations');
 const transfers = createCollection('transfers');
-const technicalRequests = createCollection('technicalRequests');
 const tasks = createCollection('tasks');
 const companies = createCollection('companies');
 const proformasBase = createCollection('proformas');
@@ -149,7 +148,7 @@ const events = {
     proformaIds.forEach((pid) => proformaItems.deleteByProformaId(pid));
 
     [participants, flights, accommodationsBase, transfers,
-     technicalRequests, tasks, sponsorsBase, budgets, proformasBase]
+     tasks, sponsorsBase, budgets, proformasBase]
       .forEach((collection) => collection.deleteWhere((row) => row.eventId === id));
 
     return eventsBase.delete(id);
@@ -294,7 +293,6 @@ export const DB = {
   accommodations,
   flights,
   transfers,
-  technicalRequests,
   sponsors,
   budgets,
   proformas,

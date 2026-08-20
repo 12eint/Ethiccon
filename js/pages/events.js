@@ -6,7 +6,7 @@ import { createTable } from '../components/table.js';
 import { openModal, closeModal } from '../components/modal.js';
 import { navigateTo, paths } from '../core/router.js';
 import { formatDate, formatAmount } from '../core/format.js';
-import { html, raw, showToast, refreshIcons, emptyState } from '../core/ui.js';
+import { html, raw, showToast, refreshIcons, emptyState, escapeHtml } from '../core/ui.js';
 import { isAdmin, visibleEvents } from '../core/auth.js';
 
 const STATUS_MAP = {
@@ -56,17 +56,17 @@ export function renderEvents(container) {
         render: (value) => {
           if (!value) return '<span style="color:var(--slate-400);">Atanmadı</span>';
           const user = DB.users.getById(value);
-          return user ? `<span class="badge badge-purple">${user.name}</span>` : '-';
+          return user ? `<span class="badge badge-purple">${escapeHtml(user.name)}</span>` : '-';
         },
       },
-      { key: 'city', label: 'Şehir', render: (value) => value || '-' },
+      { key: 'city', label: 'Şehir', render: (value) => escapeHtml(value) || '-' },
       {
         key: 'startDate',
         label: 'Tarih',
         render: (_value, row) =>
           row.endDate ? `${formatDate(row.startDate)} — ${formatDate(row.endDate)}` : formatDate(row.startDate),
       },
-      { key: 'venue', label: 'Mekan', render: (value) => value || '-' },
+      { key: 'venue', label: 'Mekan', render: (value) => escapeHtml(value) || '-' },
       {
         key: 'earlyRegPrice',
         label: 'Kayıt Ücreti',
@@ -82,7 +82,7 @@ export function renderEvents(container) {
         label: 'Durum',
         render: (value) => {
           const status = STATUS_MAP[value] ?? { badge: 'badge-gray', label: value ?? '-' };
-          return `<span class="badge ${status.badge}">${status.label}</span>`;
+          return `<span class="badge ${status.badge}">${escapeHtml(status.label)}</span>`;
         },
       },
     ],
