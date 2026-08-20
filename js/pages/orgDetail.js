@@ -12,6 +12,7 @@ import { formatDate } from '../core/format.js';
 import { html, raw, refreshIcons, emptyState } from '../core/ui.js';
 import { hasPermission } from '../core/auth.js';
 
+import { renderOverviewModule } from './modules/overview.js';
 import { renderRegistrationModule } from './modules/registration.js';
 import { renderAccommodationModule } from './modules/accommodation.js';
 import { renderFlightModule } from './modules/flight.js';
@@ -26,11 +27,27 @@ import { renderOrgSettingsModule } from './modules/orgSettings.js';
 /**
  * Sekme tanımları. count() rozetteki sayıyı, permission görünürlüğü belirler.
  * @type {Array<{key: string, label: string, icon: string, render: Function,
- *   count?: (eventId: string) => number, permission?: string}>}
+ *   group: string, count?: (eventId: string) => number, permission?: string}>}
  */
+/** Sekme grupları — ayraç yerleşimi ve ipucu metni için. */
+const TAB_GROUPS = {
+  ozet: 'Özet',
+  operasyon: 'Operasyon',
+  ticari: 'Ticari',
+  yonetim: 'Yönetim',
+};
+
 const TABS = [
   {
+    key: 'overview',
+    group: 'ozet',
+    label: 'Özet',
+    icon: 'layout-dashboard',
+    render: renderOverviewModule,
+  },
+  {
     key: 'registration',
+    group: 'operasyon',
     label: 'Kayıt',
     icon: 'user-plus',
     count: (id) => DB.participants.getByEventId(id).length,
@@ -38,6 +55,7 @@ const TABS = [
   },
   {
     key: 'accommodation',
+    group: 'operasyon',
     label: 'Konaklama',
     icon: 'bed-double',
     count: (id) => DB.participants.getByEventId(id).filter((p) => p.accommodation).length,
@@ -45,6 +63,7 @@ const TABS = [
   },
   {
     key: 'flight',
+    group: 'operasyon',
     label: 'Uçuş',
     icon: 'plane',
     count: (id) => DB.flights.getByEventId(id).length,
@@ -52,6 +71,7 @@ const TABS = [
   },
   {
     key: 'transfers',
+    group: 'operasyon',
     label: 'Lojistik',
     icon: 'car',
     count: (id) => DB.transfers.getByEventId(id).length,
@@ -59,6 +79,7 @@ const TABS = [
   },
   {
     key: 'sponsors',
+    group: 'ticari',
     label: 'Sponsorlar',
     icon: 'award',
     count: (id) => DB.sponsors.getByEventId(id).length,
@@ -66,6 +87,7 @@ const TABS = [
   },
   {
     key: 'budget',
+    group: 'ticari',
     label: 'Bütçe',
     icon: 'calculator',
     count: (id) => DB.budgets.getByEventId(id).length,
@@ -74,6 +96,7 @@ const TABS = [
   },
   {
     key: 'proforma',
+    group: 'ticari',
     label: 'Proforma',
     icon: 'file-text',
     count: (id) => DB.proformas.getByEventId(id).length,
@@ -82,6 +105,7 @@ const TABS = [
   },
   {
     key: 'tasks',
+    group: 'yonetim',
     label: 'Görevler',
     icon: 'kanban',
     count: (id) => DB.tasks.getByEventId(id).length,
@@ -89,12 +113,14 @@ const TABS = [
   },
   {
     key: 'communication',
+    group: 'yonetim',
     label: 'İletişim',
     icon: 'mail',
     render: renderCommunicationModule,
   },
   {
     key: 'settings',
+    group: 'yonetim',
     label: 'Ayarlar',
     icon: 'settings',
     render: renderOrgSettingsModule,
@@ -140,8 +166,12 @@ export function renderOrgDetail(container, eventId, requestedTab) {
     </div>
 
     <div class="tabs" id="orgTabs">
-      ${tabs.map((tab) => raw(html`
-        <button class="tab ${tab.key === activeTab.key ? 'active' : ''}" data-tab="${tab.key}">
+      ${tabs.map((tab, index) => raw(html`
+        ${index > 0 && tabs[index - 1].group !== tab.group
+          ? raw('<span class="tab-group-divider" aria-hidden="true"></span>')
+          : ''}
+        <button class="tab ${tab.key === activeTab.key ? 'active' : ''}"
+                data-tab="${tab.key}" title="${TAB_GROUPS[tab.group] ?? ''}">
           <i data-lucide="${tab.icon}" style="width:15px;height:15px;"></i>
           ${tab.label}
           ${tab.count ? raw(html`<span class="badge badge-gray" style="margin-left:0.375rem;">${tab.count(eventId)}</span>`) : ''}
