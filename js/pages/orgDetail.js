@@ -21,6 +21,7 @@ import { renderBudgetModule } from './modules/budget.js';
 import { renderProformaModule } from './modules/proforma.js';
 import { renderTasksModule } from './modules/tasks.js';
 import { renderCommunicationModule } from './modules/communication.js';
+import { renderOrgSettingsModule } from './modules/orgSettings.js';
 
 /**
  * Sekme tanımları. count() rozetteki sayıyı, permission görünürlüğü belirler.
@@ -92,6 +93,12 @@ const TABS = [
     icon: 'mail',
     render: renderCommunicationModule,
   },
+  {
+    key: 'settings',
+    label: 'Ayarlar',
+    icon: 'settings',
+    render: renderOrgSettingsModule,
+  },
 ];
 
 export function renderOrgDetail(container, eventId, requestedTab) {
@@ -153,6 +160,16 @@ export function renderOrgDetail(container, eventId, requestedTab) {
     const button = clickEvent.target.closest('.tab');
     if (!button) return;
     navigateTo(paths.org(eventId, button.dataset.tab));
+  });
+
+  // Modüller [data-tab-link="<sekme>"] taşıyan bir öğe basarak başka bir
+  // sekmeye yönlendirebilir; Özet'teki eksikler listesi ve modüller arası
+  // çapraz bağlantılar bunu kullanır.
+  container.addEventListener('click', (clickEvent) => {
+    const link = clickEvent.target.closest('[data-tab-link]');
+    if (!link) return;
+    clickEvent.preventDefault();
+    navigateTo(paths.org(eventId, link.dataset.tabLink));
   });
 
   // Sekme kendi içeriğini tazelemek istediğinde başlıktaki sayaçların da

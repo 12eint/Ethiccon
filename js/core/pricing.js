@@ -89,6 +89,39 @@ export function flightProfit(eventId) {
   );
 }
 
+// ── Proforma tutarları ───────────────────────────────────────────────────
+
+/** Tek fatura kaleminin tutarı. */
+export function lineTotal(item) {
+  return (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
+}
+
+/** Kalemlerin KDV'siz toplamı. */
+export function subtotalOf(items) {
+  return items.reduce((sum, item) => sum + lineTotal(item), 0);
+}
+
+/**
+ * Bir proformanın KDV dahil toplamı, tahsilat durumu ile birlikte.
+ * @returns {{subtotal: number, vat: number, total: number, paid: number,
+ *   balance: number, overdue: boolean}}
+ */
+export function proformaTotals(proforma) {
+  const items = DB.proformaItems.getByProformaId(proforma.id);
+  const subtotal = subtotalOf(items);
+  const vat = subtotal * (Number(proforma.vatRate) || 0) / 100;
+  const total = subtotal + vat;
+  const paid = Number(proforma.paymentReceived) || 0;
+  const balance = total - paid;
+
+  // Kuruş altı farklar "ödenmedi" sayılmamalı.
+  const unpaid = balance > 0.005;
+  const due = proforma.dueDate ? new Date(proforma.dueDate) : null;
+  const overdue = Boolean(unpaid && due && !Number.isNaN(due.getTime()) && due < new Date());
+
+  return { subtotal, vat, total, paid, balance, overdue };
+}
+
 /** Kayıt ücretlerinin toplamı. */
 export function registrationRevenue(eventId) {
   const event = DB.events.getById(eventId);

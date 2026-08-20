@@ -58,20 +58,22 @@ const ROUTES = {
     subtitle: 'Tüm etkinliklerdeki katılımcılar',
     render: (el) => renderParticipants(el),
   },
+  // Aşağıdaki üç sayfa organizasyonlar arası salt okunur rapordur;
+  // düzenleme organizasyonun içindeki eşlenik sekmede yapılır.
   sponsors: {
-    title: 'Sponsorlar',
-    subtitle: 'Sponsor ve iş ortaklarını yönetin',
+    title: 'Sponsor Raporu',
+    subtitle: 'Tüm organizasyonlardaki sponsorluklar',
     render: (el) => renderSponsors(el),
   },
   budget: {
-    title: 'Bütçe & Finans',
-    subtitle: 'Gelir gider takibi',
+    title: 'Bütçe Raporu',
+    subtitle: 'Tüm organizasyonların finansal özeti',
     permission: 'view_budget',
     render: (el) => renderBudget(el),
   },
   proforma: {
-    title: 'Proforma Fatura',
-    subtitle: 'Firma bazlı maliyetlendirme ve PDF çıktısı',
+    title: 'Tahsilat Raporu',
+    subtitle: 'Proformalar ve ödeme durumları',
     permission: 'view_proforma',
     render: (el) => renderProforma(el),
   },

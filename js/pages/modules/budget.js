@@ -99,11 +99,6 @@ export function renderBudgetModule(container, eventId, onChange) {
       return;
     }
 
-    if (target.closest('[data-action="limits"]')) {
-      openLimitsModal(eventId, limits, refresh);
-      return;
-    }
-
     if (target.closest('[data-action="add"]')) {
       openEntryModal({ eventId, admin, currentUser, onDone: refresh });
       return;
@@ -316,7 +311,7 @@ function limitCards(limits, spentByCategory, admin) {
           <h3 style="font-size:1.1rem;font-weight:700;color:var(--slate-800);">Planlanan vs Gerçekleşen</h3>
           <p style="font-size:0.85rem;color:var(--slate-500);">Kategori limitleri ve harcama durumu.</p>
         </div>
-        ${admin ? raw('<button class="btn btn-secondary btn-sm" data-action="limits"><i data-lucide="sliders" style="width:14px;"></i> Limitleri Düzenle</button>') : ''}
+        ${admin ? raw('<a class="btn btn-secondary btn-sm" data-tab-link="settings"><i data-lucide="sliders" style="width:14px;"></i> Limitleri Düzenle</a>') : ''}
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px;">
         ${visible.map((cat) => {
@@ -409,35 +404,6 @@ function transactionsTable(rows, admin, locked) {
 }
 
 // ── Modaller ─────────────────────────────────────────────────────────────
-
-function openLimitsModal(eventId, limits, onDone) {
-  openModal({
-    title: 'Bütçe Limitlerini Düzenle',
-    content: html`
-      <p style="margin-bottom:16px;font-size:0.85rem;color:var(--slate-500);">
-        Kategoriler için planlanan üst sınırları belirleyin. 0 girilen kategoriler "Limit Yok" sayılır.
-      </p>
-      <form id="limitForm" style="max-height:400px;overflow-y:auto;padding-right:8px;">
-        ${EXPENSE_CATEGORIES.map((cat) => raw(html`
-          <div class="form-group" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--slate-100);padding-bottom:12px;margin-bottom:12px;">
-            <label class="form-label" style="margin:0;font-size:0.9rem;">${cat}</label>
-            <input type="number" class="form-input" style="width:150px;" data-category="${cat}" value="${Number(limits[cat]) || 0}" min="0">
-          </div>
-        `))}
-      </form>
-    `,
-    onSave: () => {
-      const next = {};
-      document.querySelectorAll('#limitForm input[data-category]').forEach((input) => {
-        next[input.dataset.category] = Number(input.value) || 0;
-      });
-      DB.events.update(eventId, { budgetLimits: next });
-      closeModal();
-      showToast('Limitler güncellendi.');
-      onDone();
-    },
-  });
-}
 
 /**
  * Gelir/gider ekleme ve reddedilen masrafı düzeltip tekrar gönderme.
