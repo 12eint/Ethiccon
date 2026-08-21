@@ -7,7 +7,7 @@ import { openModal, closeModal } from '../../components/modal.js';
 import { createDoughnutChart, destroyCharts } from '../../components/charts.js';
 import { formatAmount, formatShortDate, toAscii } from '../../core/format.js';
 import { html, raw, showToast, refreshIcons, bindClick, alertBand } from '../../core/ui.js';
-import { getCurrentUser, isAdmin } from '../../core/auth.js';
+import { getCurrentUser, isAdmin, canSeeFinancials } from '../../core/auth.js';
 import { eventFinancials } from '../../core/pricing.js';
 
 export const INCOME_CATEGORIES = ['Sponsorluk', 'Kayıt Geliri', 'Konaklama Geliri', 'Diğer Gelir'];
@@ -52,6 +52,8 @@ export function renderBudgetModule(container, eventId, onChange) {
   const refresh = () => (onChange ? onChange() : renderBudgetModule(container, eventId));
 
   const admin = isAdmin();
+  // Bütçe modülü herkese açık; ayrı tutulan şey acentenin kâr tablosu.
+  const seesFinancials = canSeeFinancials();
   const currentUser = getCurrentUser();
   const event = DB.events.getById(eventId) ?? {};
   const rows = DB.budgets.getByEventId(eventId);
@@ -70,12 +72,12 @@ export function renderBudgetModule(container, eventId, onChange) {
   // Modül düzen sözleşmesi: başlık + eylemler, uyarı bandı, sonra içerik.
   container.innerHTML = html`
     <div class="page-header">
-      <h2>${admin ? 'Finansal Kokpit' : 'Saha Cüzdanı'}</h2>
+      <h2>${seesFinancials ? 'Finansal Kokpit' : 'Bütçe ve Harcamalar'}</h2>
       <div style="display:flex;gap:8px;">
-        ${admin ? raw('<button class="btn btn-secondary btn-sm" data-action="pdf"><i data-lucide="file-down"></i> PDF Raporu</button>') : ''}
+        ${seesFinancials ? raw('<button class="btn btn-secondary btn-sm" data-action="pdf"><i data-lucide="file-down"></i> PDF Raporu</button>') : ''}
         ${(!locked || admin) ? raw(html`
           <button class="btn btn-primary btn-sm" data-action="add">
-            <i data-lucide="plus"></i> ${admin ? 'Yeni İşlem' : 'Fiş / Masraf Ekle'}
+            <i data-lucide="plus"></i> Yeni İşlem
           </button>
         `) : ''}
       </div>
@@ -91,14 +93,14 @@ export function renderBudgetModule(container, eventId, onChange) {
       action: admin ? { label: 'Onayla ve Kilidi Aç', attrs: 'data-action="unlock"' } : null,
     })) : ''}
 
-    ${admin ? raw(adminSummary(finance)) : raw(managerSummary(finance, plannedTotal, usagePercent))}
+    ${seesFinancials ? raw(adminSummary(finance)) : raw(managerSummary(finance, plannedTotal, usagePercent))}
     ${admin && pending.length > 0 ? raw(pendingTable(pending)) : ''}
     ${raw(limitCards(limits, finance.categoryExpenses, admin))}
-    ${raw(transactionsTable(rows, admin, locked))}
+    ${raw(transactionsTable(rows, admin, locked, seesFinancials, currentUser?.name))}
   `;
 
   // ── Grafik ──
-  if (admin && finance.expense > 0) {
+  if (seesFinancials && finance.expense > 0) {
     const entries = Object.entries(finance.categoryExpenses).filter(([, value]) => value > 0);
     requestAnimationFrame(() => {
       createDoughnutChart('expenseDoughnutChart', {
@@ -341,13 +343,17 @@ const STATUS_BADGES = {
   rejected: '<span class="badge badge-danger">Reddedildi</span>',
 };
 
-function transactionsTable(rows, admin, locked) {
-  const visible = admin ? rows : rows.filter((r) => r.type === 'expense');
+function transactionsTable(rows, admin, locked, seesFinancials, currentUserName) {
+  // Personel giderleri ve yalnızca kendi girdiği gelirleri görür; başkasının
+  // girdiği gelir satırları acentenin ciro tablosunu ele verir.
+  const visible = seesFinancials
+    ? rows
+    : rows.filter((r) => r.type === 'expense' || r.createdBy === currentUserName);
 
   return html`
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title">${admin ? 'Tüm İşlemler (Gelir / Gider)' : 'Saha Harcamalarım'}</h3>
+        <h3 class="card-title">${seesFinancials ? 'Tüm İşlemler (Gelir / Gider)' : 'İşlemlerim'}</h3>
       </div>
       <div class="table-container">
         <table class="data-table">
@@ -403,10 +409,10 @@ function transactionsTable(rows, admin, locked) {
  */
 function openEntryModal({ eventId, admin, currentUser, existing = null, onDone }) {
   const isResubmit = Boolean(existing);
-  const categories = admin ? [...INCOME_CATEGORIES, ...EXPENSE_CATEGORIES] : EXPENSE_CATEGORIES;
+  const categories = [...INCOME_CATEGORIES, ...EXPENSE_CATEGORIES];
 
   openModal({
-    title: isResubmit ? 'Düzelt ve Tekrar Gönder' : (admin ? 'Yeni İşlem Ekle' : 'Masraf Fişi Ekle'),
+    title: isResubmit ? 'Düzelt ve Tekrar Gönder' : 'Yeni İşlem Ekle',
     width: '520px',
     saveText: admin && !isResubmit ? 'Kaydet' : 'Onaya Gönder',
     content: html`
@@ -414,9 +420,9 @@ function openEntryModal({ eventId, admin, currentUser, existing = null, onDone }
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">İşlem Türü</label>
-            <select class="form-select" name="type" ${admin && !isResubmit ? '' : raw('disabled')}>
-              ${admin && !isResubmit ? raw('<option value="income">Gelir</option>') : ''}
-              <option value="expense" selected>Gider / Masraf</option>
+            <select class="form-select" name="type" ${isResubmit ? raw('disabled') : ''}>
+              <option value="expense" ${existing?.type === 'income' ? '' : raw('selected')}>Gider / Masraf</option>
+              <option value="income" ${existing?.type === 'income' ? raw('selected') : ''}>Gelir</option>
             </select>
           </div>
           <div class="form-group">

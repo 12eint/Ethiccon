@@ -9,7 +9,9 @@
 import { DB } from './store.js';
 
 export const PERMISSIONS = [
-  { id: 'view_budget', label: 'Bütçe Modülünü Görüntüleme' },
+  // Bütçe modülüne erişim artık herkeste var; bu yetki yalnızca finansal
+  // toplamları (gelir, kâr/zarar) görmeyi açar.
+  { id: 'view_budget', label: 'Finansal Toplamları Görüntüleme (gelir, kâr/zarar)' },
   { id: 'view_proforma', label: 'Proforma Faturaları Görüntüleme' },
   { id: 'view_settings', label: 'Ayarlar Sayfasına Erişim' },
   { id: 'delete_pax', label: 'Misafir (Katılımcı) Kaydı Silebilme' },
@@ -33,6 +35,18 @@ export function hasPermission(permission) {
   if (!user) return false;
   const granted = user.permissions ?? (user.role === 'admin' ? ['all'] : []);
   return granted.includes('all') || granted.includes(permission);
+}
+
+/**
+ * Finansal toplamları (toplam gelir, toplam gider, net kâr/zarar, modül
+ * gelirleri) görme yetkisi.
+ *
+ * Bütçe modülünün kendisi herkese açık: saha personeli gelir ve gider
+ * girebilir, kendi harcamalarını ve kategori limitlerini görebilir. Ayrı
+ * tutulan şey acentenin kâr tablosudur.
+ */
+export function canSeeFinancials() {
+  return hasPermission('view_budget');
 }
 
 /**

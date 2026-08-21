@@ -91,7 +91,6 @@ const TABS = [
     label: 'Bütçe',
     icon: 'calculator',
     count: (id) => DB.budgets.getByEventId(id).length,
-    permission: 'view_budget',
     render: renderBudgetModule,
   },
   {

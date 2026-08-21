@@ -11,11 +11,14 @@ import { createTable } from '../components/table.js';
 import { navigateTo, paths } from '../core/router.js';
 import { formatAmount } from '../core/format.js';
 import { html, raw, refreshIcons, emptyState, escapeHtml, alertBand } from '../core/ui.js';
-import { isAdmin, visibleEvents } from '../core/auth.js';
+import { isAdmin, visibleEvents, canSeeFinancials } from '../core/auth.js';
 import { eventFinancials } from '../core/pricing.js';
 
 export function renderBudget(container) {
   const admin = isAdmin();
+  // Finansal toplamları göremeyenlere ciro ve kâr sütunları gösterilmez;
+  // onun yerine kendi harcamalarının limitlere göre durumu çıkar.
+  const seesFinancials = canSeeFinancials();
   const events = visibleEvents();
 
   if (events.length === 0) {
@@ -28,35 +31,56 @@ export function renderBudget(container) {
     return;
   }
 
-  const rows = events.map((event) => ({
-    id: event.id,
-    name: event.name,
-    ...eventFinancials(event.id),
-  }));
+  const rows = events.map((event) => {
+    const finance = eventFinancials(event.id);
+    const limits = event.budgetLimits ?? {};
+    const limit = Object.values(limits).reduce((s, v) => s + (Number(v) || 0), 0);
+    return {
+      id: event.id,
+      name: event.name,
+      ...finance,
+      limit,
+      remaining: limit - finance.expense,
+    };
+  });
 
   const sum = (key) => rows.reduce((total, row) => total + row[key], 0);
   const totalRevenue = sum('totalRevenue');
   const totalExpense = sum('expense');
   const totalPending = sum('pendingExpense');
   const net = totalRevenue - totalExpense;
+  const totalLimit = events.reduce((total, event) => {
+    const limits = event.budgetLimits ?? {};
+    return total + Object.values(limits).reduce((s, v) => s + (Number(v) || 0), 0);
+  }, 0);
 
   container.innerHTML = html`
     <div class="page-header">
       <div>
-        <h1>Bütçe Raporu</h1>
+        <h1>${seesFinancials ? 'Bütçe Raporu' : 'Bütçe ve Harcamalar'}</h1>
         <p style="color:var(--slate-500);font-size:0.875rem;margin-top:4px;">
-          Tüm organizasyonların finansal özeti. Düzenleme için organizasyona girin.
+          ${seesFinancials
+            ? 'Tüm organizasyonların finansal özeti. Düzenleme için organizasyona girin.'
+            : 'Organizasyon bazında harcama durumu. Gelir/gider girmek için organizasyona girin.'}
         </p>
       </div>
     </div>
 
     <div class="kpi-grid" style="margin-bottom:24px;">
-      ${raw(kpi('Toplam Gelir', formatAmount(totalRevenue), 'var(--success)', 'Modül gelirleri + ek gelirler'))}
-      ${raw(kpi('Toplam Gider', formatAmount(totalExpense), 'var(--danger)', 'Onaylanmış giderler'))}
-      ${raw(kpi(net >= 0 ? 'Net Kâr' : 'Net Zarar',
-                `${net >= 0 ? '+' : ''}${formatAmount(net)}`,
-                net >= 0 ? 'var(--primary-700)' : 'var(--danger)',
-                `${rows.length} organizasyon`))}
+      ${seesFinancials ? raw(html`
+        ${raw(kpi('Toplam Gelir', formatAmount(totalRevenue), 'var(--success)', 'Modül gelirleri + ek gelirler'))}
+        ${raw(kpi('Toplam Gider', formatAmount(totalExpense), 'var(--danger)', 'Onaylanmış giderler'))}
+        ${raw(kpi(net >= 0 ? 'Net Kâr' : 'Net Zarar',
+                  `${net >= 0 ? '+' : ''}${formatAmount(net)}`,
+                  net >= 0 ? 'var(--primary-700)' : 'var(--danger)',
+                  `${rows.length} organizasyon`))}
+      `) : raw(html`
+        ${raw(kpi('Toplam Gider Limiti', formatAmount(totalLimit), 'var(--slate-500)', 'Yönetici tarafından belirlendi'))}
+        ${raw(kpi('Gerçekleşen Harcama', formatAmount(totalExpense), 'var(--primary-600)', 'Onaylanmış masraflar'))}
+        ${raw(kpi('Kalan Bütçe', formatAmount(totalLimit - totalExpense),
+                  totalLimit - totalExpense >= 0 ? 'var(--success)' : 'var(--danger)',
+                  `${rows.length} organizasyon`))}
+      `)}
     </div>
 
     ${admin && totalPending > 0 ? raw(alertBand({
@@ -76,8 +100,12 @@ export function renderBudget(container) {
     onRowClick: (row) => navigateTo(paths.org(row.id, 'budget')),
     columns: [
       { key: 'name', label: 'Organizasyon', render: (v) => `<strong>${escapeHtml(v)}</strong>` },
-      { key: 'modules', label: 'Modül Geliri', render: (v) => formatAmount(v) },
-      { key: 'extraIncome', label: 'Ek Gelir', render: (v) => formatAmount(v) },
+      ...(seesFinancials ? [
+        { key: 'modules', label: 'Modül Geliri', render: (v) => formatAmount(v) },
+        { key: 'extraIncome', label: 'Ek Gelir', render: (v) => formatAmount(v) },
+      ] : [
+        { key: 'limit', label: 'Gider Limiti', render: (v) => (v > 0 ? formatAmount(v) : '<span style="color:var(--slate-400);">Limit yok</span>') },
+      ]),
       { key: 'expense', label: 'Gider', render: (v) => `<span style="color:var(--danger);">${formatAmount(v)}</span>` },
       {
         key: 'pendingExpense',
@@ -86,11 +114,15 @@ export function renderBudget(container) {
           ? `<span class="badge badge-warning">${formatAmount(v)}</span>`
           : '<span style="color:var(--slate-400);">-</span>'),
       },
-      {
+      ...(seesFinancials ? [{
         key: 'netProfit',
         label: 'Net',
         render: (v) => `<strong style="color:${v >= 0 ? 'var(--success)' : 'var(--danger)'};">${formatAmount(v)}</strong>`,
-      },
+      }] : [{
+        key: 'remaining',
+        label: 'Kalan',
+        render: (v) => `<strong style="color:${v >= 0 ? 'var(--success)' : 'var(--danger)'};">${formatAmount(v)}</strong>`,
+      }]),
     ],
     actions: [
       {

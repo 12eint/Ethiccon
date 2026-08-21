@@ -60,9 +60,8 @@ const ROUTES = {
     render: (el) => renderSponsors(el),
   },
   budget: {
-    title: 'Bütçe Raporu',
-    subtitle: 'Tüm organizasyonların finansal özeti',
-    permission: 'view_budget',
+    title: 'Bütçe ve Finans',
+    subtitle: 'Organizasyon bazında bütçe durumu',
     render: (el) => renderBudget(el),
   },
   proforma: {

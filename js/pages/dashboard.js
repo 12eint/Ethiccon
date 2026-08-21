@@ -5,7 +5,7 @@ import { DB } from '../core/store.js';
 import { createBarChart, createDoughnutChart, destroyCharts } from '../components/charts.js';
 import { formatAmount, formatTime } from '../core/format.js';
 import { html, raw, refreshIcons, bindClick, alertBand } from '../core/ui.js';
-import { getCurrentUser, isAdmin, visibleEvents } from '../core/auth.js';
+import { getCurrentUser, isAdmin, visibleEvents, canSeeFinancials } from '../core/auth.js';
 import { eventFinancials, ROOM_TYPES } from '../core/pricing.js';
 import { navigateTo } from '../core/router.js';
 
@@ -21,6 +21,7 @@ export function renderDashboard(container) {
 
   const user = getCurrentUser();
   const admin = isAdmin();
+  const seesFinancials = canSeeFinancials();
   const events = visibleEvents();
   const eventIds = new Set(events.map((e) => e.id));
 
@@ -75,7 +76,7 @@ export function renderDashboard(container) {
         <div class="kpi-value">${participants.length}</div>
         <div class="kpi-label">Kayıtlı Misafir</div>
       </div>
-      ${admin ? raw(html`
+      ${seesFinancials ? raw(html`
         <div class="kpi-card">
           <div class="kpi-icon" style="background:var(--success-light);color:var(--success);"><i data-lucide="trending-up"></i></div>
           <div class="kpi-value" style="color:${totals.revenue - totals.expense >= 0 ? 'var(--success)' : 'var(--danger)'};">
@@ -104,14 +105,16 @@ export function renderDashboard(container) {
             : raw('<div style="display:flex;height:100%;align-items:center;justify-content:center;color:var(--slate-400);font-size:0.9rem;">Konaklama kaydı bulunmuyor</div>')}
         </div>
       </div>
-      <div class="card" style="padding:24px;">
-        <h3 class="card-title" style="margin-bottom:16px;font-size:1rem;">Gelir / Gider</h3>
-        <div style="position:relative;height:220px;">
-          ${totals.revenue > 0 || totals.expense > 0
-            ? raw('<canvas id="budgetChart"></canvas>')
-            : raw('<div style="display:flex;height:100%;align-items:center;justify-content:center;color:var(--slate-400);font-size:0.9rem;">Finansal hareket bulunmuyor</div>')}
+      ${seesFinancials ? raw(html`
+        <div class="card" style="padding:24px;">
+          <h3 class="card-title" style="margin-bottom:16px;font-size:1rem;">Gelir / Gider</h3>
+          <div style="position:relative;height:220px;">
+            ${totals.revenue > 0 || totals.expense > 0
+              ? raw('<canvas id="budgetChart"></canvas>')
+              : raw('<div style="display:flex;height:100%;align-items:center;justify-content:center;color:var(--slate-400);font-size:0.9rem;">Finansal hareket bulunmuyor</div>')}
+          </div>
         </div>
-      </div>
+      `) : ''}
     </div>
 
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:24px;align-items:start;">
@@ -172,7 +175,7 @@ export function renderDashboard(container) {
         colors: ['#6366f1', '#10b981', '#f59e0b'],
       });
     }
-    if (totals.revenue > 0 || totals.expense > 0) {
+    if (seesFinancials && (totals.revenue > 0 || totals.expense > 0)) {
       createBarChart('budgetChart', {
         labels: ['Gelir', 'Gider'],
         datasets: [{

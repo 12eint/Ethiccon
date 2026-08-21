@@ -13,7 +13,7 @@ import { DB } from '../../core/store.js';
 import { createBarChart, createDoughnutChart, destroyCharts } from '../../components/charts.js';
 import { formatAmount, formatDate } from '../../core/format.js';
 import { html, raw, refreshIcons } from '../../core/ui.js';
-import { isAdmin } from '../../core/auth.js';
+import { isAdmin, canSeeFinancials } from '../../core/auth.js';
 import {
   eventFinancials, accommodationBreakdown, proformaTotals, ROOM_TYPES,
 } from '../../core/pricing.js';
@@ -56,6 +56,9 @@ export function renderOverviewModule(container, eventId) {
 
   destroyCharts();
   const admin = isAdmin();
+  // Kâr/zarar ve gelir kırılımı ayrı yetkiye bağlı; bütçe modülünün
+  // kendisi herkese açık.
+  const seesFinancials = canSeeFinancials();
   const participants = DB.participants.getByEventId(eventId);
   const guests = participants.filter((pax) => pax.accommodation);
   const flights = DB.flights.getByEventId(eventId);
@@ -64,7 +67,7 @@ export function renderOverviewModule(container, eventId) {
 
   const allotmentTotal = rooms.reduce((sum, row) => sum + (Number(row.allotment.count) || 0), 0);
   const soldTotal = rooms.reduce((sum, row) => sum + row.sold, 0);
-  const issues = collectIssues({ event, participants, guests, flights, finance, rooms, eventId, admin });
+  const issues = collectIssues({ event, participants, guests, flights, finance, rooms, eventId, admin, seesFinancials });
   const schedule = scheduleStatus(event);
 
   // Grafik verileri — dashboard'daki ile aynı kırılım, tek organizasyona daraltılmış.
@@ -97,7 +100,7 @@ export function renderOverviewModule(container, eventId) {
         String(flights.length),
         `${DB.transfers.getByEventId(eventId).length} transfer planlandı`,
         'var(--warning)'))}
-      ${admin ? raw(statCard(
+      ${seesFinancials ? raw(statCard(
         finance.netProfit >= 0 ? 'trending-up' : 'trending-down',
         finance.netProfit >= 0 ? 'Net Durum (Kâr)' : 'Net Durum (Zarar)',
         formatAmount(finance.netProfit),
@@ -114,7 +117,7 @@ export function renderOverviewModule(container, eventId) {
             : raw('<div style="display:flex;height:100%;align-items:center;justify-content:center;color:var(--slate-400);font-size:0.9rem;">Konaklama kaydı bulunmuyor</div>')}
         </div>
       </div>
-      ${admin ? raw(html`
+      ${seesFinancials ? raw(html`
         <div class="card" style="padding:24px;">
           <h3 class="card-title" style="margin-bottom:16px;font-size:1rem;">Gelir / Gider</h3>
           <div style="position:relative;height:220px;">
@@ -126,7 +129,7 @@ export function renderOverviewModule(container, eventId) {
       `) : ''}
     </div>
 
-    <div style="display:grid;grid-template-columns:${admin ? '3fr 2fr' : '1fr'};gap:24px;align-items:start;">
+    <div style="display:grid;grid-template-columns:${seesFinancials ? '3fr 2fr' : '1fr'};gap:24px;align-items:start;">
       <div class="card" style="padding:24px;">
         <h3 class="settings-card-title">
           <i data-lucide="${issues.length ? 'list-checks' : 'check-circle'}"></i>
@@ -152,7 +155,7 @@ export function renderOverviewModule(container, eventId) {
             </div>`)}
       </div>
 
-      ${admin ? raw(html`
+      ${seesFinancials ? raw(html`
         <div class="card" style="padding:24px;">
           <h3 class="settings-card-title"><i data-lucide="coins"></i> Modül Gelirleri</h3>
           ${raw(revenueRow('Kayıt', finance.registration))}
@@ -177,7 +180,7 @@ export function renderOverviewModule(container, eventId) {
         colors: ['#6366f1', '#10b981', '#f59e0b'],
       });
     }
-    if (admin && hasFinanceData) {
+    if (seesFinancials && hasFinanceData) {
       createBarChart('orgBudgetChart', {
         labels: ['Gelir', 'Gider'],
         datasets: [{
@@ -204,7 +207,7 @@ const SEVERITY = {
  * toplar. Sıra önemlidir: engelleyiciler önce gelir.
  * @returns {Array<{severity: string, title: string, detail: string, tab: string, action: string}>}
  */
-function collectIssues({ event, participants, guests, flights, finance, rooms, eventId, admin }) {
+function collectIssues({ event, participants, guests, flights, finance, rooms, eventId, admin, seesFinancials }) {
   const issues = [];
   const add = (severity, title, detail, tab, action) =>
     issues.push({ severity, title, detail, tab, action });
@@ -269,7 +272,7 @@ function collectIssues({ event, participants, guests, flights, finance, rooms, e
       'proforma', 'Proforma');
   }
 
-  if (admin && finance.netProfit < 0 && finance.totalRevenue > 0) {
+  if (seesFinancials && finance.netProfit < 0 && finance.totalRevenue > 0) {
     add('warning', 'Organizasyon zararda görünüyor',
       `Gider geliri ${formatAmount(Math.abs(finance.netProfit))} aşıyor.`, 'budget', 'Bütçe');
   }
