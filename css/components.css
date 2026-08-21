@@ -940,3 +940,14 @@ body.sidebar-collapsed .sidebar-nav-item { justify-content: center; }
   flex-shrink: 0;
   margin-left: auto;
 }
+
+/* Logo alanı ana ekrana bağlantı; <a> olduğu için varsayılan link
+   stillerini bastırıp tıklanabilirliği belli ediyoruz. */
+a.sidebar-header {
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+a.sidebar-header:hover {
+  background: var(--sidebar-hover);
+}

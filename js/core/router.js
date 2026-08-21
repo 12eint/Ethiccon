@@ -14,7 +14,6 @@ import { refreshIcons } from './ui.js';
 import { renderDashboard } from '../pages/dashboard.js';
 import { renderEvents } from '../pages/events.js';
 import { renderOrgDetail } from '../pages/orgDetail.js';
-import { renderParticipants } from '../pages/participants.js';
 import { renderSponsors } from '../pages/sponsors.js';
 import { renderBudget } from '../pages/budget.js';
 import { renderProforma } from '../pages/proforma.js';
@@ -52,11 +51,6 @@ const ROUTES = {
       return [event.city, event.venue].filter(Boolean).join(' · ');
     },
     render: (el, ctx) => renderOrgDetail(el, ctx.id, ctx.tab),
-  },
-  participants: {
-    title: 'Katılımcılar',
-    subtitle: 'Tüm etkinliklerdeki katılımcılar',
-    render: (el) => renderParticipants(el),
   },
   // Aşağıdaki üç sayfa organizasyonlar arası salt okunur rapordur;
   // düzenleme organizasyonun içindeki eşlenik sekmede yapılır.
