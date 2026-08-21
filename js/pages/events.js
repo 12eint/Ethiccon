@@ -1,12 +1,12 @@
 /**
  * Etkinlik (organizasyon) listesi ve CRUD.
  */
-import { DB } from '../core/store.js';
+import { DB, distinctValues } from '../core/store.js';
 import { createTable } from '../components/table.js';
 import { openModal, closeModal } from '../components/modal.js';
 import { navigateTo, paths } from '../core/router.js';
 import { formatDate, formatAmount } from '../core/format.js';
-import { html, raw, showToast, refreshIcons, emptyState, escapeHtml } from '../core/ui.js';
+import { html, raw, showToast, refreshIcons, emptyState, escapeHtml, suggestInput } from '../core/ui.js';
 import { isAdmin, visibleEvents } from '../core/auth.js';
 
 const STATUS_MAP = {
@@ -156,11 +156,11 @@ function openEventModal(onDone) {
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Şehir</label>
-            <input class="form-input" type="text" name="city">
+            ${raw(suggestInput({ name: 'city', options: distinctValues(DB.events.getAll(), 'city') }))}
           </div>
           <div class="form-group">
             <label class="form-label">Mekan</label>
-            <input class="form-input" type="text" name="venue">
+            ${raw(suggestInput({ name: 'venue', options: distinctValues(DB.events.getAll(), 'venue') }))}
           </div>
         </div>
         <div class="form-row">

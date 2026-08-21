@@ -256,6 +256,19 @@ function migrateBudgets() {
   console.info(`[store] ${legacy.length} bütçe kalemi budgets tablosuna taşındı.`);
 }
 
+/**
+ * Bir kayıt kümesinde daha önce kullanılmış farklı değerler.
+ * Öneri listelerini beslemek için: havayolu, araç, şehir gibi alanlarda
+ * kullanıcıya kendi yazdıklarını tekrar önerir.
+ */
+export function distinctValues(rows, key) {
+  const seen = rows
+    .map((row) => row[key])
+    .filter((value) => value != null && String(value).trim() !== '')
+    .map(String);
+  return [...new Set(seen)].sort((a, b) => a.localeCompare(b, 'tr'));
+}
+
 export function initStore() {
   ensureUsers();
   // Göç başarısız olsa bile (ör. localStorage kotası dolu) uygulama açılmalı;

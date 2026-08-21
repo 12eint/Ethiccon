@@ -2,10 +2,10 @@
  * Uçuş bileti yönetimi.
  * Bilet başına alış/satış tutulur; aradaki marj bütçeye gelir olarak yansır.
  */
-import { DB } from '../../core/store.js';
+import { DB, distinctValues } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
 import { formatAmount } from '../../core/format.js';
-import { html, raw, showToast, refreshIcons, emptyState, bindClick } from '../../core/ui.js';
+import { html, raw, showToast, refreshIcons, emptyState, bindClick, suggestInput } from '../../core/ui.js';
 import { isAdmin } from '../../core/auth.js';
 import { flightProfit } from '../../core/pricing.js';
 
@@ -171,11 +171,13 @@ function openFlightModal({ eventId, participants, flight, onDone }) {
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Tedarikçi</label>
-            <input type="text" class="form-input" name="supplier" value="${data.supplier ?? ''}">
+            ${raw(suggestInput({ name: 'supplier', value: data.supplier,
+              options: distinctValues(DB.flights.getAll(), 'supplier') }))}
           </div>
           <div class="form-group">
             <label class="form-label">Havayolu</label>
-            <input type="text" class="form-input" name="airline" value="${data.airline ?? ''}">
+            ${raw(suggestInput({ name: 'airline', value: data.airline,
+              options: distinctValues(DB.flights.getAll(), 'airline') }))}
           </div>
         </div>
 

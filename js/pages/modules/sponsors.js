@@ -2,10 +2,10 @@
  * Sponsor yönetimi — tek organizasyon kapsamında.
  * Hem #org/:id/sponsors sekmesi hem de Sponsorlar sayfası bunu kullanır.
  */
-import { DB } from '../../core/store.js';
+import { DB, distinctValues } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
 import { formatAmount } from '../../core/format.js';
-import { html, raw, showToast, refreshIcons, emptyState, bindClick } from '../../core/ui.js';
+import { html, raw, showToast, refreshIcons, emptyState, bindClick, suggestInput } from '../../core/ui.js';
 import { getCurrentUser } from '../../core/auth.js';
 
 export const SPONSOR_PACKAGES = [
@@ -132,7 +132,17 @@ function openSponsorModal(sponsor, eventId, onDone) {
     <form id="sponsorForm">
       <div class="form-group">
         <label class="form-label">Firma Adı *</label>
-        <input class="form-input" type="text" name="companyName" value="${data.companyName ?? ''}" required>
+        ${raw(suggestInput({
+          name: 'companyName',
+          value: data.companyName,
+          options: DB.companies.getAll().map((company) => company.name),
+          placeholder: 'Kayıtlı firmalardan seçin veya yeni yazın',
+          required: true,
+        }))}
+        <p style="font-size:0.75rem;color:var(--slate-400);margin-top:6px;">
+          Firmalar veritabanındaki kayıtlar önerilir. Kayıtlı bir firma seçilirse
+          proformada vergi dairesi ve numarası otomatik gelir.
+        </p>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -151,7 +161,15 @@ function openSponsorModal(sponsor, eventId, onDone) {
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Yetkili Kişi</label>
-          <input class="form-input" type="text" name="contactPerson" value="${data.contactPerson ?? ''}">
+          ${raw(suggestInput({
+            name: 'contactPerson',
+            value: data.contactPerson,
+            // Firma kartlarındaki yetkililer ve daha önce girilmiş sponsor yetkilileri.
+            options: [
+              ...DB.companies.getAll().map((company) => company.contactName),
+              ...distinctValues(DB.sponsors.getAll(), 'contactPerson'),
+            ],
+          }))}
         </div>
         <div class="form-group">
           <label class="form-label">E-posta</label>

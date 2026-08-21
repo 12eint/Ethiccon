@@ -7,9 +7,9 @@
  * organizasyonun içinde hesaplandığı hâlde fiyatın dışarıda tanımlanması,
  * "önce nereye gitmeliyim" sorusunun başlıca kaynağıydı.
  */
-import { DB } from '../../core/store.js';
+import { DB, distinctValues } from '../../core/store.js';
 import { formatAmount } from '../../core/format.js';
-import { html, raw, showToast, refreshIcons, bindClick } from '../../core/ui.js';
+import { html, raw, showToast, refreshIcons, bindClick, suggestInput } from '../../core/ui.js';
 import { isAdmin } from '../../core/auth.js';
 import { EXPENSE_CATEGORIES } from './budget.js';
 
@@ -46,11 +46,13 @@ export function renderOrgSettingsModule(container, eventId, onChange) {
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Şehir</label>
-            <input class="form-input" type="text" name="city" value="${event.city ?? ''}">
+            ${raw(suggestInput({ name: 'city', value: event.city,
+              options: distinctValues(DB.events.getAll(), 'city') }))}
           </div>
           <div class="form-group">
             <label class="form-label">Mekan</label>
-            <input class="form-input" type="text" name="venue" value="${event.venue ?? ''}">
+            ${raw(suggestInput({ name: 'venue', value: event.venue,
+              options: distinctValues(DB.events.getAll(), 'venue') }))}
           </div>
         </div>
         <div class="form-row">

@@ -1,10 +1,10 @@
 /**
  * Lojistik: araç ataması ve yolcu manifestosu.
  */
-import { DB } from '../../core/store.js';
+import { DB, distinctValues } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
 import { formatShortDate } from '../../core/format.js';
-import { html, raw, showToast, refreshIcons, emptyState, initSearchableSelects, bindClick } from '../../core/ui.js';
+import { html, raw, showToast, refreshIcons, emptyState, initSearchableSelects, bindClick, suggestInput } from '../../core/ui.js';
 
 const DIRECTIONS = {
   arrival: 'Havaalanı ➔ Otel (Karşılama)',
@@ -138,13 +138,14 @@ function openTransferModal({ eventId, participants, onDone }) {
           </div>
           <div class="form-group">
             <label class="form-label">Araç / Plaka *</label>
-            <input type="text" class="form-input" name="vehicle" placeholder="Örn: 34 VIP 123 veya Minibüs" required>
+            ${raw(suggestInput({ name: 'vehicle', placeholder: 'Örn: 34 VIP 123 veya Minibüs',
+              required: true, options: distinctValues(DB.transfers.getAll(), 'vehicle') }))}
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Şoför Adı</label>
-            <input type="text" class="form-input" name="driver">
+            ${raw(suggestInput({ name: 'driver', options: distinctValues(DB.transfers.getAll(), 'driver') }))}
           </div>
           <div class="form-group">
             <label class="form-label">Şoför Telefonu</label>

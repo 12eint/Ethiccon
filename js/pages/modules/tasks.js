@@ -1,6 +1,6 @@
-import { DB } from '../../core/store.js';
+import { DB, distinctValues } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
-import { escapeHtml, showToast, refreshIcons } from '../../core/ui.js';
+import { escapeHtml, showToast, refreshIcons, suggestInput } from '../../core/ui.js';
 import { formatShortDate } from '../../core/format.js';
 
 export function renderTasksModule(container, eventId, onChange) {
@@ -134,7 +134,9 @@ export function renderTasksModule(container, eventId, onChange) {
                 </div>
                 <div class="form-group">
                     <label class="form-label">Sorumlu Kişi</label>
-                    <input type="text" class="form-input" id="tskAssignee" value="${task?.assignee || ''}" placeholder="Örn: Ayşe Hanım">
+                    ${suggestInput({ name: 'tskAssignee', id: 'tskAssignee', value: task?.assignee || '',
+                      options: [...DB.users.getAll().map(u => u.name),
+                                ...distinctValues(DB.tasks.getAll(), 'assignee')] })}
                 </div>
             </div>
             <div class="form-row">
