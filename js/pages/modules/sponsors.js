@@ -200,7 +200,7 @@ function openSponsorModal(sponsor, eventId, onDone) {
       </div>
       <div style="font-size:0.8rem;color:var(--info);display:flex;gap:6px;padding:12px;background:var(--info-light);border-radius:var(--radius-md);">
         <i data-lucide="info" style="width:16px;flex-shrink:0;"></i>
-        <span>Sözleşme tutarı bütçeye "Sponsorluk" geliri olarak işlenir; sponsor silinirse bu gelir de kaldırılır.</span>
+        <span>Yalnızca onaylı sponsorların sözleşme tutarı bütçeye "Sponsorluk" geliri olarak işlenir. Durum beklemeye veya iptale alınırsa gelir kaldırılır.</span>
       </div>
     </form>
   `;
@@ -235,7 +235,10 @@ function openSponsorModal(sponsor, eventId, onDone) {
         `${isEdit ? 'Sponsor güncellendi' : 'Yeni sponsor eklendi'}: ${values.companyName}`,
         'success',
       );
-      showToast(isEdit ? 'Sponsor güncellendi.' : 'Sponsor eklendi ve bütçeye işlendi.');
+      const incomeMessage = values.status === 'confirmed'
+        ? ' Onaylı tutar bütçeye işlendi.'
+        : ' Bütçeye gelir işlenmedi.';
+      showToast(`${isEdit ? 'Sponsor güncellendi.' : 'Sponsor eklendi.'}${incomeMessage}`);
       closeModal();
       onDone();
     },
@@ -243,14 +246,22 @@ function openSponsorModal(sponsor, eventId, onDone) {
 }
 
 /**
- * Sponsorun bütçedeki gelir satırını oluşturur ya da tutar/isim değiştiyse
- * günceller. Satır sourceType/sourceId ile sponsora bağlanır; silme işlemi
- * store katmanında bu bağ üzerinden yapılır.
+ * Onaylı sponsorun bütçedeki gelir satırını oluşturur ya da tutar/isim
+ * değiştiyse günceller. Bekleyen veya iptal edilen sponsor bütçe geliri
+ * değildir; daha önce oluşmuş satırı da kaldırır.
+ *
+ * Satır sourceType/sourceId ile sponsora bağlanır; sponsor tamamen silinirse
+ * store katmanı da aynı bağ üzerinden güvenlik ağı olarak temizler.
  */
-function syncSponsorIncome(sponsor) {
+export function syncSponsorIncome(sponsor) {
   const existing = DB.budgets.getAll().find(
     (row) => row.sourceType === 'sponsor' && row.sourceId === sponsor.id,
   );
+
+  if (sponsor.status !== 'confirmed') {
+    if (existing) DB.budgets.delete(existing.id);
+    return;
+  }
 
   const payload = {
     eventId: sponsor.eventId,
