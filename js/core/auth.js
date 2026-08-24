@@ -9,7 +9,9 @@
 import { DB } from './store.js';
 
 export const PERMISSIONS = [
-  { id: 'view_budget', label: 'Bütçe Modülünü Görüntüleme' },
+  // Bütçe modülüne erişim artık herkeste var; bu yetki yalnızca finansal
+  // toplamları (gelir, kâr/zarar) görmeyi açar.
+  { id: 'view_budget', label: 'Finansal Toplamları Görüntüleme (gelir, kâr/zarar)' },
   { id: 'view_proforma', label: 'Proforma Faturaları Görüntüleme' },
   { id: 'view_settings', label: 'Ayarlar Sayfasına Erişim' },
   { id: 'delete_pax', label: 'Misafir (Katılımcı) Kaydı Silebilme' },
@@ -36,6 +38,18 @@ export function hasPermission(permission) {
 }
 
 /**
+ * Finansal toplamları (toplam gelir, toplam gider, net kâr/zarar, modül
+ * gelirleri) görme yetkisi.
+ *
+ * Bütçe modülünün kendisi herkese açık: saha personeli gelir ve gider
+ * girebilir, kendi harcamalarını ve kategori limitlerini görebilir. Ayrı
+ * tutulan şey acentenin kâr tablosudur.
+ */
+export function canSeeFinancials() {
+  return hasPermission('view_budget');
+}
+
+/**
  * Kullanıcının görebileceği etkinlikler.
  * Yönetici hepsini görür; personel yalnızca kendisine atanmış olanları
  * ve sahipsiz olanları görür.
@@ -43,8 +57,25 @@ export function hasPermission(permission) {
 export function visibleEvents() {
   const events = DB.events.getAll();
   const user = getCurrentUser();
-  if (!user || user.role === 'admin') return events;
+  if (!user) return [];
+  if (user.role === 'admin') return events;
   return events.filter((e) => !e.assignedManagerId || e.assignedManagerId === user.id);
+}
+
+/**
+ * Tek bir organizasyona erişim kontrolü.
+ *
+ * Liste ekranlarının filtrelenmesi yeterli değildir: kullanıcı organizasyon
+ * kimliğini arama sonucundan, eski bir bağlantıdan veya adres çubuğundan
+ * öğrenmiş olabilir. Organizasyon rotası da aynı kuralı uygulamalıdır.
+ */
+export function canAccessEvent(eventId) {
+  const event = DB.events.getById(eventId);
+  const user = getCurrentUser();
+  if (!event || !user) return false;
+  return user.role === 'admin'
+    || !event.assignedManagerId
+    || event.assignedManagerId === user.id;
 }
 
 export function login(username, password) {

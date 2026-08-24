@@ -7,14 +7,13 @@
  */
 import { renderSidebar } from '../components/sidebar.js';
 import { renderTopbar } from '../components/topbar.js';
-import { hasPermission } from './auth.js';
+import { canAccessEvent, hasPermission } from './auth.js';
 import { DB } from './store.js';
 import { refreshIcons } from './ui.js';
 
 import { renderDashboard } from '../pages/dashboard.js';
 import { renderEvents } from '../pages/events.js';
 import { renderOrgDetail } from '../pages/orgDetail.js';
-import { renderParticipants } from '../pages/participants.js';
 import { renderSponsors } from '../pages/sponsors.js';
 import { renderBudget } from '../pages/budget.js';
 import { renderProforma } from '../pages/proforma.js';
@@ -53,11 +52,6 @@ const ROUTES = {
     },
     render: (el, ctx) => renderOrgDetail(el, ctx.id, ctx.tab),
   },
-  participants: {
-    title: 'Katılımcılar',
-    subtitle: 'Tüm etkinliklerdeki katılımcılar',
-    render: (el) => renderParticipants(el),
-  },
   // Aşağıdaki üç sayfa organizasyonlar arası salt okunur rapordur;
   // düzenleme organizasyonun içindeki eşlenik sekmede yapılır.
   sponsors: {
@@ -66,9 +60,8 @@ const ROUTES = {
     render: (el) => renderSponsors(el),
   },
   budget: {
-    title: 'Bütçe Raporu',
-    subtitle: 'Tüm organizasyonların finansal özeti',
-    permission: 'view_budget',
+    title: 'Bütçe ve Finans',
+    subtitle: 'Organizasyon bazında bütçe durumu',
     render: (el) => renderBudget(el),
   },
   proforma: {
@@ -144,10 +137,18 @@ export function startRouter() {
     const ctx = parseHash(window.location.hash);
     let route = ROUTES[ctx.name];
 
-    // Bilinmeyen rota veya kayıp organizasyon → dashboard
-    if (!route || (ctx.name === 'org' && !DB.events.getById(ctx.id))) {
+    // Bilinmeyen rota → dashboard
+    if (!route) {
       route = ROUTES.dashboard;
       ctx.name = 'dashboard';
+    }
+
+    // Kayıp veya kullanıcıya atanmamış organizasyon adres çubuğundan da
+    // açılamaz. Hash'i de düzeltmek geri/ileri gezinmesinde aynı kaçak rotaya
+    // tekrar düşülmesini önler.
+    if (ctx.name === 'org' && !canAccessEvent(ctx.id)) {
+      navigateTo(paths.dashboard());
+      return;
     }
 
     if (route.permission && !hasPermission(route.permission)) {

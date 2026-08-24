@@ -5,10 +5,10 @@
  * hesaplarının dayandığı alanları (regPeriod, accommodation, roomType…)
  * yazan tek yer olduğu için sistemin gelir tarafı boş çalışıyordu.
  */
-import { DB } from '../../core/store.js';
+import { DB, distinctValues } from '../../core/store.js';
 import { openModal, closeModal } from '../../components/modal.js';
 import { formatAmount } from '../../core/format.js';
-import { html, raw, showToast, refreshIcons, initSearchableSelects, bindClick, alertBand } from '../../core/ui.js';
+import { html, raw, showToast, refreshIcons, initSearchableSelects, bindClick, alertBand, suggestInput } from '../../core/ui.js';
 import { getCurrentUser, isAdmin, hasPermission } from '../../core/auth.js';
 import { registrationPrice, ROOM_TYPES, ROOM_TYPE_LABELS } from '../../core/pricing.js';
 
@@ -349,7 +349,9 @@ function openParticipantModal({ eventId, participant, onDone }) {
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Yetkili</label>
-            <input type="text" class="form-input" name="authorizedPerson" value="${data.authorizedPerson ?? ''}">
+            ${raw(suggestInput({ name: 'authorizedPerson', value: data.authorizedPerson,
+              options: [...distinctValues(DB.participants.getAll(), 'authorizedPerson'),
+                        ...DB.companies.getAll().map(c => c.contactName)] }))}
           </div>
           <div class="form-group">
             <label class="form-label">Firma</label>
@@ -392,7 +394,8 @@ function openParticipantModal({ eventId, participant, onDone }) {
           </div>
           <div class="form-group">
             <label class="form-label">Kalkış Şehri</label>
-            <input type="text" class="form-input" name="depCity" value="${data.depCity ?? ''}">
+            ${raw(suggestInput({ name: 'depCity', value: data.depCity,
+              options: distinctValues(DB.participants.getAll(), 'depCity') }))}
           </div>
         </div>
 

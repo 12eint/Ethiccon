@@ -99,6 +99,39 @@ export function initSearchableSelects(scope = document) {
   });
 }
 
+let suggestCounter = 0;
+
+/**
+ * Kayıtlı değerleri öneren metin alanı (`<input list>` + `<datalist>`).
+ *
+ * Sistemde zaten kayıtlı olan firmalar, havayolları, şehirler gibi değerler
+ * yazarken açılır liste olarak önerilir; listede olmayan yeni bir değer de
+ * serbestçe yazılabilir. Katı bir `<select>` yerine bunun seçilmesi bilinçli:
+ * havayolu, tedarikçi, araç gibi alanlarda yeni değerler sürekli çıkıyor ve
+ * kullanıcıyı önce başka bir ekrana kayıt yapmaya zorlamak akışı bozar.
+ *
+ * @param {{name: string, value?: any, options?: Array<string>, placeholder?: string,
+ *   required?: boolean, className?: string, id?: string}} config
+ */
+export function suggestInput({
+  name, value = '', options = [], placeholder = '', required = false,
+  className = 'form-input', id,
+}) {
+  const listId = `suggest-${name}-${++suggestCounter}`;
+  const unique = [...new Set(options.filter(Boolean).map(String))]
+    .sort((a, b) => a.localeCompare(b, 'tr'));
+
+  return html`
+    <input class="${className}" type="text" name="${name}" value="${value ?? ''}"
+      ${id ? raw(`id="${escapeHtml(id)}"`) : ''}
+      placeholder="${placeholder}" list="${listId}" autocomplete="off"
+      ${required ? raw('required') : ''}>
+    <datalist id="${listId}">
+      ${unique.map((option) => raw(html`<option value="${option}"></option>`))}
+    </datalist>
+  `;
+}
+
 const BAND_STYLES = {
   info: { bg: 'var(--info-light)', border: 'var(--info)', text: '#1e40af', icon: 'info' },
   success: { bg: 'var(--success-light)', border: 'var(--success)', text: '#065f46', icon: 'check-circle' },

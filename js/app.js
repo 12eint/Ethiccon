@@ -4,7 +4,7 @@
  * yönlendirmesi core/router.js'te, veri core/store.js'te.
  */
 import { initStore, DB } from './core/store.js';
-import { requireAuth } from './core/auth.js';
+import { requireAuth, visibleEvents } from './core/auth.js';
 import { startRouter, navigateTo, paths } from './core/router.js';
 import { escapeHtml, refreshIcons } from './core/ui.js';
 
@@ -64,8 +64,10 @@ function toggleSearch(force) {
 
 function search(query) {
   const found = [];
+  const events = visibleEvents();
+  const eventIds = new Set(events.map((event) => event.id));
 
-  DB.participants.getAll().forEach((pax) => {
+  DB.participants.getAll().filter((pax) => eventIds.has(pax.eventId)).forEach((pax) => {
     const haystack = `${pax.firstName ?? ''} ${pax.lastName ?? ''} ${pax.company ?? ''} ${pax.email ?? ''} ${pax.phone ?? ''}`.toLowerCase();
     if (!haystack.includes(query)) return;
     const event = DB.events.getById(pax.eventId);
@@ -77,7 +79,7 @@ function search(query) {
     });
   });
 
-  DB.events.getAll().forEach((event) => {
+  events.forEach((event) => {
     const haystack = `${event.name ?? ''} ${event.city ?? ''}`.toLowerCase();
     if (!haystack.includes(query)) return;
     found.push({

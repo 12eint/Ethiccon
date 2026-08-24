@@ -10,18 +10,55 @@
  *    bağlanır.
  */
 import { DB } from '../../core/store.js';
+import { createBarChart, createDoughnutChart, destroyCharts } from '../../components/charts.js';
 import { formatAmount, formatDate } from '../../core/format.js';
 import { html, raw, refreshIcons } from '../../core/ui.js';
-import { isAdmin } from '../../core/auth.js';
+import { isAdmin, canSeeFinancials } from '../../core/auth.js';
 import {
   eventFinancials, accommodationBreakdown, proformaTotals, ROOM_TYPES,
 } from '../../core/pricing.js';
+
+/**
+ * Etkinliğin takvim durumu: planlanan / devam eden / tamamlanmış.
+ * Dashboard'daki "Aktif & Gelecek" sayacının tek organizasyondaki karşılığı.
+ */
+function scheduleStatus(event) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const start = event.startDate ? new Date(event.startDate) : null;
+  const end = event.endDate ? new Date(event.endDate) : start;
+  const day = 86_400_000;
+
+  if (!start || Number.isNaN(start.getTime())) {
+    return { label: 'Tarihsiz', hint: 'Başlangıç tarihi girilmedi', color: 'var(--slate-500)' };
+  }
+  if (start > today) {
+    return {
+      label: `${Math.ceil((start - today) / day)} gün`,
+      hint: 'etkinliğe kalan süre',
+      color: 'var(--primary-600)',
+    };
+  }
+  if (end >= today) {
+    return { label: 'Devam ediyor', hint: 'Etkinlik sürüyor', color: 'var(--success)' };
+  }
+  return {
+    label: 'Tamamlandı',
+    hint: `${Math.floor((today - end) / day)} gün önce bitti`,
+    color: 'var(--slate-500)',
+  };
+}
 
 export function renderOverviewModule(container, eventId) {
   const event = DB.events.getById(eventId);
   if (!event) return;
 
+  destroyCharts();
   const admin = isAdmin();
+  // Kâr/zarar ve gelir kırılımı ayrı yetkiye bağlı; bütçe modülünün
+  // kendisi herkese açık.
+  const seesFinancials = canSeeFinancials();
   const participants = DB.participants.getByEventId(eventId);
   const guests = participants.filter((pax) => pax.accommodation);
   const flights = DB.flights.getByEventId(eventId);
@@ -30,7 +67,15 @@ export function renderOverviewModule(container, eventId) {
 
   const allotmentTotal = rooms.reduce((sum, row) => sum + (Number(row.allotment.count) || 0), 0);
   const soldTotal = rooms.reduce((sum, row) => sum + row.sold, 0);
-  const issues = collectIssues({ event, participants, guests, flights, finance, rooms, eventId, admin });
+  const issues = collectIssues({ event, participants, guests, flights, finance, rooms, eventId, admin, seesFinancials });
+  const schedule = scheduleStatus(event);
+
+  // Grafik verileri — dashboard'daki ile aynı kırılım, tek organizasyona daraltılmış.
+  const roomCounts = ROOM_TYPES.map(
+    (type) => guests.filter((pax) => pax.roomType === type).length,
+  );
+  const hasRoomData = roomCounts.some((count) => count > 0);
+  const hasFinanceData = finance.totalRevenue > 0 || finance.expense > 0;
 
   container.innerHTML = html`
     <div class="page-header">
@@ -42,6 +87,7 @@ export function renderOverviewModule(container, eventId) {
     </div>
 
     <div class="kpi-grid" style="margin-bottom:24px;">
+      ${raw(statCard('calendar-clock', 'Durum', schedule.label, schedule.hint, schedule.color))}
       ${raw(statCard('users', 'Kayıtlı Misafir',
         String(participants.length),
         event.capacity ? `${event.capacity} kontenjan` : 'Kontenjan belirlenmedi',
@@ -54,15 +100,36 @@ export function renderOverviewModule(container, eventId) {
         String(flights.length),
         `${DB.transfers.getByEventId(eventId).length} transfer planlandı`,
         'var(--warning)'))}
-      ${admin ? raw(statCard(
+      ${seesFinancials ? raw(statCard(
         finance.netProfit >= 0 ? 'trending-up' : 'trending-down',
-        finance.netProfit >= 0 ? 'Net Kâr' : 'Net Zarar',
+        finance.netProfit >= 0 ? 'Net Durum (Kâr)' : 'Net Durum (Zarar)',
         formatAmount(finance.netProfit),
         `${formatAmount(finance.totalRevenue)} gelir · ${formatAmount(finance.expense)} gider`,
         finance.netProfit >= 0 ? 'var(--success)' : 'var(--danger)')) : ''}
     </div>
 
-    <div style="display:grid;grid-template-columns:${admin ? '3fr 2fr' : '1fr'};gap:24px;align-items:start;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:24px;margin-bottom:24px;">
+      <div class="card" style="padding:24px;">
+        <h3 class="card-title" style="margin-bottom:16px;font-size:1rem;">Oda Dağılımı</h3>
+        <div style="position:relative;height:220px;">
+          ${hasRoomData
+            ? raw('<canvas id="orgRoomChart"></canvas>')
+            : raw('<div style="display:flex;height:100%;align-items:center;justify-content:center;color:var(--slate-400);font-size:0.9rem;">Konaklama kaydı bulunmuyor</div>')}
+        </div>
+      </div>
+      ${seesFinancials ? raw(html`
+        <div class="card" style="padding:24px;">
+          <h3 class="card-title" style="margin-bottom:16px;font-size:1rem;">Gelir / Gider</h3>
+          <div style="position:relative;height:220px;">
+            ${hasFinanceData
+              ? raw('<canvas id="orgBudgetChart"></canvas>')
+              : raw('<div style="display:flex;height:100%;align-items:center;justify-content:center;color:var(--slate-400);font-size:0.9rem;">Finansal hareket bulunmuyor</div>')}
+          </div>
+        </div>
+      `) : ''}
+    </div>
+
+    <div style="display:grid;grid-template-columns:${seesFinancials ? '3fr 2fr' : '1fr'};gap:24px;align-items:start;">
       <div class="card" style="padding:24px;">
         <h3 class="settings-card-title">
           <i data-lucide="${issues.length ? 'list-checks' : 'check-circle'}"></i>
@@ -88,7 +155,7 @@ export function renderOverviewModule(container, eventId) {
             </div>`)}
       </div>
 
-      ${admin ? raw(html`
+      ${seesFinancials ? raw(html`
         <div class="card" style="padding:24px;">
           <h3 class="settings-card-title"><i data-lucide="coins"></i> Modül Gelirleri</h3>
           ${raw(revenueRow('Kayıt', finance.registration))}
@@ -104,6 +171,28 @@ export function renderOverviewModule(container, eventId) {
     </div>
   `;
 
+  // Grafikler DOM yerleştikten sonra kurulmalı.
+  requestAnimationFrame(() => {
+    if (hasRoomData) {
+      createDoughnutChart('orgRoomChart', {
+        labels: [...ROOM_TYPES],
+        data: roomCounts,
+        colors: ['#6366f1', '#10b981', '#f59e0b'],
+      });
+    }
+    if (seesFinancials && hasFinanceData) {
+      createBarChart('orgBudgetChart', {
+        labels: ['Gelir', 'Gider'],
+        datasets: [{
+          label: 'Tutar (₺)',
+          data: [finance.totalRevenue, finance.expense],
+          backgroundColor: ['#10b981', '#ef4444'],
+          borderRadius: 4,
+        }],
+      });
+    }
+  });
+
   refreshIcons(container);
 }
 
@@ -118,7 +207,7 @@ const SEVERITY = {
  * toplar. Sıra önemlidir: engelleyiciler önce gelir.
  * @returns {Array<{severity: string, title: string, detail: string, tab: string, action: string}>}
  */
-function collectIssues({ event, participants, guests, flights, finance, rooms, eventId, admin }) {
+function collectIssues({ event, participants, guests, flights, finance, rooms, eventId, admin, seesFinancials }) {
   const issues = [];
   const add = (severity, title, detail, tab, action) =>
     issues.push({ severity, title, detail, tab, action });
@@ -183,7 +272,7 @@ function collectIssues({ event, participants, guests, flights, finance, rooms, e
       'proforma', 'Proforma');
   }
 
-  if (admin && finance.netProfit < 0 && finance.totalRevenue > 0) {
+  if (seesFinancials && finance.netProfit < 0 && finance.totalRevenue > 0) {
     add('warning', 'Organizasyon zararda görünüyor',
       `Gider geliri ${formatAmount(Math.abs(finance.netProfit))} aşıyor.`, 'budget', 'Bütçe');
   }

@@ -33,10 +33,10 @@ export function renderSidebar(container, activePage) {
   };
 
   container.innerHTML = html`
-    <div class="sidebar-header">
+    <a class="sidebar-header" href="#dashboard" title="Ana ekrana dön">
       <div class="sidebar-logo"><span class="logo-text">ETHICCON</span></div>
       <span class="sidebar-subtitle">Kongre Yönetim Sistemi</span>
-    </div>
+    </a>
 
     <div class="sidebar-section-title">ORGANİZASYONLAR</div>
     <nav class="sidebar-nav">
@@ -66,16 +66,10 @@ export function renderSidebar(container, activePage) {
 
     <div class="sidebar-section-title">MODÜLLER</div>
     <nav class="sidebar-nav">
-      <a href="#participants" class="sidebar-nav-item ${activePage === 'participants' ? 'active' : ''}">
-        <i data-lucide="users" class="nav-icon"></i>
-        <span class="nav-label">Tüm Katılımcılar</span>
+      <a href="#budget" class="sidebar-nav-item ${activePage === 'budget' ? 'active' : ''}">
+        <i data-lucide="calculator" class="nav-icon"></i>
+        <span class="nav-label">Bütçe ve Finans</span>
       </a>
-      ${hasPermission('view_budget') ? raw(html`
-        <a href="#budget" class="sidebar-nav-item ${activePage === 'budget' ? 'active' : ''}">
-          <i data-lucide="calculator" class="nav-icon"></i>
-          <span class="nav-label">Bütçe ve Finans</span>
-        </a>
-      `) : ''}
       ${hasPermission('view_proforma') ? raw(html`
         <a href="#proforma" class="sidebar-nav-item ${activePage === 'proforma' ? 'active' : ''}">
           <i data-lucide="file-spreadsheet" class="nav-icon"></i>
@@ -84,7 +78,7 @@ export function renderSidebar(container, activePage) {
       `) : ''}
       <a href="#sponsors" class="sidebar-nav-item ${activePage === 'sponsors' ? 'active' : ''}">
         <i data-lucide="award" class="nav-icon"></i>
-        <span class="nav-label">Sponsor ve Sergi</span>
+        <span class="nav-label">Sponsor ve Stand</span>
       </a>
     </nav>
 

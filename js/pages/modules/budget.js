@@ -7,7 +7,7 @@ import { openModal, closeModal } from '../../components/modal.js';
 import { createDoughnutChart, destroyCharts } from '../../components/charts.js';
 import { formatAmount, formatShortDate, toAscii } from '../../core/format.js';
 import { html, raw, showToast, refreshIcons, bindClick, alertBand } from '../../core/ui.js';
-import { getCurrentUser, isAdmin } from '../../core/auth.js';
+import { getCurrentUser, isAdmin, canSeeFinancials } from '../../core/auth.js';
 import { eventFinancials } from '../../core/pricing.js';
 
 export const INCOME_CATEGORIES = ['Sponsorluk', 'Kayıt Geliri', 'Konaklama Geliri', 'Diğer Gelir'];
@@ -52,6 +52,8 @@ export function renderBudgetModule(container, eventId, onChange) {
   const refresh = () => (onChange ? onChange() : renderBudgetModule(container, eventId));
 
   const admin = isAdmin();
+  // Bütçe modülü herkese açık; ayrı tutulan şey acentenin kâr tablosu.
+  const seesFinancials = canSeeFinancials();
   const currentUser = getCurrentUser();
   const event = DB.events.getById(eventId) ?? {};
   const rows = DB.budgets.getByEventId(eventId);
@@ -65,17 +67,17 @@ export function renderBudgetModule(container, eventId, onChange) {
   const usagePercent = plannedTotal > 0
     ? Math.min(100, Math.round((finance.expense / plannedTotal) * 100))
     : (finance.expense > 0 ? 100 : 0);
-  const pending = rows.filter((r) => r.status === 'pending' && r.type === 'expense');
+  const pending = rows.filter((row) => row.status === 'pending');
 
   // Modül düzen sözleşmesi: başlık + eylemler, uyarı bandı, sonra içerik.
   container.innerHTML = html`
     <div class="page-header">
-      <h2>${admin ? 'Finansal Kokpit' : 'Saha Cüzdanı'}</h2>
+      <h2>${seesFinancials ? 'Finansal Kokpit' : 'Bütçe ve Harcamalar'}</h2>
       <div style="display:flex;gap:8px;">
-        ${admin ? raw('<button class="btn btn-secondary btn-sm" data-action="pdf"><i data-lucide="file-down"></i> PDF Raporu</button>') : ''}
+        ${seesFinancials ? raw('<button class="btn btn-secondary btn-sm" data-action="pdf"><i data-lucide="file-down"></i> PDF Raporu</button>') : ''}
         ${(!locked || admin) ? raw(html`
           <button class="btn btn-primary btn-sm" data-action="add">
-            <i data-lucide="plus"></i> ${admin ? 'Yeni İşlem' : 'Fiş / Masraf Ekle'}
+            <i data-lucide="plus"></i> Yeni İşlem
           </button>
         `) : ''}
       </div>
@@ -91,14 +93,14 @@ export function renderBudgetModule(container, eventId, onChange) {
       action: admin ? { label: 'Onayla ve Kilidi Aç', attrs: 'data-action="unlock"' } : null,
     })) : ''}
 
-    ${admin ? raw(adminSummary(finance)) : raw(managerSummary(finance, plannedTotal, usagePercent))}
+    ${seesFinancials ? raw(adminSummary(finance)) : raw(managerSummary(finance, plannedTotal, usagePercent))}
     ${admin && pending.length > 0 ? raw(pendingTable(pending)) : ''}
     ${raw(limitCards(limits, finance.categoryExpenses, admin))}
-    ${raw(transactionsTable(rows, admin, locked))}
+    ${raw(transactionsTable(rows, admin, locked, seesFinancials, currentUser?.name))}
   `;
 
   // ── Grafik ──
-  if (admin && finance.expense > 0) {
+  if (seesFinancials && finance.expense > 0) {
     const entries = Object.entries(finance.categoryExpenses).filter(([, value]) => value > 0);
     requestAnimationFrame(() => {
       createDoughnutChart('expenseDoughnutChart', {
@@ -133,28 +135,37 @@ export function renderBudgetModule(container, eventId, onChange) {
 
     const approveId = target.closest('[data-approve]')?.dataset.approve;
     if (approveId) {
-      DB.budgets.update(approveId, { status: 'approved' });
-      showToast('Masraf onaylandı.');
+      if (!admin) return;
+      const row = DB.budgets.update(approveId, { status: 'approved' });
+      DB.logs.add(`Bütçe işlemi onaylandı: ${row?.description || row?.category || '-'}`, 'success');
+      showToast('İşlem onaylandı.');
       refresh();
       return;
     }
 
     const rejectId = target.closest('[data-reject]')?.dataset.reject;
     if (rejectId) {
-      if (!window.confirm('Bu masrafı reddetmek istediğinize emin misiniz?')) return;
-      DB.budgets.update(rejectId, { status: 'rejected' });
-      showToast('Masraf reddedildi.', 'warning');
+      if (!admin) return;
+      if (!window.confirm('Bu işlemi reddetmek istediğinize emin misiniz?')) return;
+      const row = DB.budgets.update(rejectId, { status: 'rejected' });
+      DB.logs.add(`Bütçe işlemi reddedildi: ${row?.description || row?.category || '-'}`, 'warning');
+      showToast('İşlem reddedildi.', 'warning');
       refresh();
       return;
     }
 
     const resubmitId = target.closest('[data-resubmit]')?.dataset.resubmit;
     if (resubmitId) {
+      const existing = DB.budgets.getById(resubmitId);
+      if (!canResubmitBudgetRow(existing, { admin, locked, currentUserName: currentUser?.name })) {
+        showToast('Yalnızca kendi reddedilmiş işleminizi tekrar gönderebilirsiniz.', 'error');
+        return;
+      }
       openEntryModal({
         eventId,
         admin,
         currentUser,
-        existing: DB.budgets.getById(resubmitId),
+        existing,
         onDone: refresh,
       });
       return;
@@ -166,6 +177,10 @@ export function renderBudgetModule(container, eventId, onChange) {
     const row = DB.budgets.getById(deleteId);
     if (row?.sourceType === 'sponsor') {
       showToast('Bu satır sponsor kaydından üretilmiştir; sponsoru silerek kaldırın.', 'error');
+      return;
+    }
+    if (!canDeleteBudgetRow(row, { admin, locked, currentUserName: currentUser?.name })) {
+      showToast('Yalnızca kendi onaylanmamış işlemlerinizi silebilirsiniz.', 'error');
       return;
     }
     if (!window.confirm('Bu bütçe kalemini silmek istediğinize emin misiniz?')) return;
@@ -265,21 +280,22 @@ function pendingTable(pending) {
     <div class="card" style="margin-bottom:24px;border:1px solid var(--warning);">
       <div class="card-header" style="background:var(--warning-light);padding:16px 24px;">
         <h3 class="card-title" style="color:#92400e;display:flex;align-items:center;gap:8px;">
-          <i data-lucide="clock" style="width:18px;"></i> Onay Bekleyen Saha Harcamaları
+          <i data-lucide="clock" style="width:18px;"></i> Onay Bekleyen Bütçe İşlemleri
         </h3>
       </div>
       <div class="table-container">
         <table class="data-table">
           <thead>
-            <tr><th>Kategori</th><th>Açıklama</th><th>Tarih</th><th>Tutar</th><th>Ekleyen</th><th style="text-align:right;">İşlem</th></tr>
+            <tr><th>Tür</th><th>Kategori</th><th>Açıklama</th><th>Tarih</th><th>Tutar</th><th>Ekleyen</th><th style="text-align:right;">İşlem</th></tr>
           </thead>
           <tbody>
             ${pending.map((row) => raw(html`
               <tr>
+                <td><span class="badge ${row.type === 'income' ? 'badge-success' : 'badge-gray'}">${row.type === 'income' ? 'Gelir' : 'Gider'}</span></td>
                 <td><strong>${row.category}</strong></td>
                 <td>${row.description || '-'}</td>
                 <td>${formatShortDate(row.createdAt)}</td>
-                <td style="font-weight:700;color:var(--warning);">${formatAmount(row.amount)}</td>
+                <td style="font-weight:700;color:${row.type === 'income' ? 'var(--success)' : 'var(--warning)'};">${formatAmount(row.amount)}</td>
                 <td style="font-size:0.8rem;">${row.createdBy || '-'}</td>
                 <td style="text-align:right;">
                   <div class="action-btns" style="justify-content:flex-end;">
@@ -341,13 +357,34 @@ const STATUS_BADGES = {
   rejected: '<span class="badge badge-danger">Reddedildi</span>',
 };
 
-function transactionsTable(rows, admin, locked) {
-  const visible = admin ? rows : rows.filter((r) => r.type === 'expense');
+export function canDeleteBudgetRow(row, { admin, locked, currentUserName }) {
+  if (!row || row.sourceType === 'sponsor') return false;
+  if (admin) return true;
+  const status = row.status ?? 'approved';
+  return !locked && status !== 'approved' && row.createdBy === currentUserName;
+}
+
+export function canResubmitBudgetRow(row, { admin, locked, currentUserName }) {
+  return Boolean(
+    row
+    && !admin
+    && !locked
+    && row.status === 'rejected'
+    && row.createdBy === currentUserName,
+  );
+}
+
+function transactionsTable(rows, admin, locked, seesFinancials, currentUserName) {
+  // Personel giderleri ve yalnızca kendi girdiği gelirleri görür; başkasının
+  // girdiği gelir satırları acentenin ciro tablosunu ele verir.
+  const visible = seesFinancials
+    ? rows
+    : rows.filter((r) => r.type === 'expense' || r.createdBy === currentUserName);
 
   return html`
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title">${admin ? 'Tüm İşlemler (Gelir / Gider)' : 'Saha Harcamalarım'}</h3>
+        <h3 class="card-title">${seesFinancials ? 'Tüm İşlemler (Gelir / Gider)' : 'İşlemlerim'}</h3>
       </div>
       <div class="table-container">
         <table class="data-table">
@@ -363,6 +400,8 @@ function transactionsTable(rows, admin, locked) {
               : visible.map((row) => {
                   const status = row.status ?? 'approved';
                   const isIncome = row.type === 'income';
+                  const canDelete = canDeleteBudgetRow(row, { admin, locked, currentUserName });
+                  const canResubmit = canResubmitBudgetRow(row, { admin, locked, currentUserName });
                   return raw(html`
                     <tr style="opacity:${status === 'rejected' ? '0.6' : '1'};">
                       <td>${raw(STATUS_BADGES[status] ?? '')}</td>
@@ -376,10 +415,10 @@ function transactionsTable(rows, admin, locked) {
                       <td style="font-size:0.8rem;color:var(--slate-500);">${row.createdBy || '-'}</td>
                       <td style="text-align:right;">
                         <div class="action-btns" style="justify-content:flex-end;">
-                          ${(!admin && status === 'rejected' && !locked) ? raw(html`
+                          ${canResubmit ? raw(html`
                             <button class="action-btn edit" data-resubmit="${row.id}" title="Düzelt ve tekrar gönder"><i data-lucide="refresh-cw"></i></button>
                           `) : ''}
-                          ${(!locked || admin) ? raw(html`
+                          ${canDelete ? raw(html`
                             <button class="action-btn delete" data-delete="${row.id}" title="Sil"><i data-lucide="trash-2"></i></button>
                           `) : ''}
                         </div>
@@ -403,10 +442,10 @@ function transactionsTable(rows, admin, locked) {
  */
 function openEntryModal({ eventId, admin, currentUser, existing = null, onDone }) {
   const isResubmit = Boolean(existing);
-  const categories = admin ? [...INCOME_CATEGORIES, ...EXPENSE_CATEGORIES] : EXPENSE_CATEGORIES;
+  const initialType = existing?.type ?? 'expense';
 
   openModal({
-    title: isResubmit ? 'Düzelt ve Tekrar Gönder' : (admin ? 'Yeni İşlem Ekle' : 'Masraf Fişi Ekle'),
+    title: isResubmit ? 'Düzelt ve Tekrar Gönder' : 'Yeni İşlem Ekle',
     width: '520px',
     saveText: admin && !isResubmit ? 'Kaydet' : 'Onaya Gönder',
     content: html`
@@ -414,15 +453,15 @@ function openEntryModal({ eventId, admin, currentUser, existing = null, onDone }
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">İşlem Türü</label>
-            <select class="form-select" name="type" ${admin && !isResubmit ? '' : raw('disabled')}>
-              ${admin && !isResubmit ? raw('<option value="income">Gelir</option>') : ''}
-              <option value="expense" selected>Gider / Masraf</option>
+            <select class="form-select" name="type" ${isResubmit ? raw('disabled') : ''}>
+              <option value="expense" ${existing?.type === 'income' ? '' : raw('selected')}>Gider / Masraf</option>
+              <option value="income" ${existing?.type === 'income' ? raw('selected') : ''}>Gelir</option>
             </select>
           </div>
           <div class="form-group">
             <label class="form-label">Kategori</label>
-            <select class="form-select" name="category">
-              ${categories.map((cat) => raw(html`
+            <select class="form-select" name="category" id="budgetCategory">
+              ${categoriesForType(initialType).map((cat) => raw(html`
                 <option value="${cat}" ${existing?.category === cat ? raw('selected') : ''}>${cat}</option>
               `))}
             </select>
@@ -438,7 +477,7 @@ function openEntryModal({ eventId, admin, currentUser, existing = null, onDone }
         </div>
         ${!admin ? raw(html`
           <div style="font-size:0.8rem;color:var(--warning);margin-top:8px;">
-            <i data-lucide="info" style="width:12px;"></i> Bu masraf yönetici onayından sonra bütçeye işlenecektir.
+            <i data-lucide="info" style="width:12px;"></i> Bu işlem yönetici onayından sonra bütçeye işlenecektir.
           </div>
         `) : ''}
       </form>
@@ -447,12 +486,17 @@ function openEntryModal({ eventId, admin, currentUser, existing = null, onDone }
       const form = document.getElementById('budgetEntryForm');
       const values = Object.fromEntries(new FormData(form).entries());
 
-      // disabled select FormData'ya girmez; personel için tür sabittir.
-      const type = values.type ?? 'expense';
+      // Yeniden gönderimde tür alanı disabled olduğu için FormData'ya girmez;
+      // mevcut tür korunur.
+      const type = existing?.type ?? values.type ?? 'expense';
       const amount = Number(values.amount) || 0;
 
       if (amount <= 0) {
         showToast('Lütfen sıfırdan büyük bir tutar girin.', 'error');
+        return;
+      }
+      if (!categoriesForType(type).includes(values.category)) {
+        showToast('İşlem türüyle uyumlu bir kategori seçin.', 'error');
         return;
       }
 
@@ -476,10 +520,25 @@ function openEntryModal({ eventId, admin, currentUser, existing = null, onDone }
       }
 
       closeModal();
-      showToast(admin && !isResubmit ? 'İşlem kaydedildi.' : 'Masraf onaya gönderildi.');
+      showToast(admin && !isResubmit ? 'İşlem kaydedildi.' : 'İşlem onaya gönderildi.');
       onDone();
     },
   });
+
+  if (!isResubmit) {
+    const form = document.getElementById('budgetEntryForm');
+    const typeSelect = form.querySelector('[name="type"]');
+    const categorySelect = form.querySelector('#budgetCategory');
+    typeSelect.addEventListener('change', () => {
+      categorySelect.innerHTML = categoriesForType(typeSelect.value)
+        .map((category) => `<option value="${category}">${category}</option>`)
+        .join('');
+    });
+  }
+}
+
+export function categoriesForType(type) {
+  return type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
 }
 
 function exportBudgetPdf(event, rows, finance) {
