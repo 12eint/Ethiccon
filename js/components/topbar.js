@@ -9,7 +9,7 @@ import { DB } from '../core/store.js';
 import { navigateTo, paths } from '../core/router.js';
 import { formatTime } from '../core/format.js';
 import { html, raw, refreshIcons } from '../core/ui.js';
-import { getCurrentUser, logout } from '../core/auth.js';
+import { getCurrentUser, logout, visibleEvents } from '../core/auth.js';
 
 const MIN_QUERY_LENGTH = 2;
 const MAX_RESULTS = 8;
@@ -150,8 +150,10 @@ function wireTopbar(container) {
 
 function collectResults(query) {
   const results = [];
+  const events = visibleEvents();
+  const eventIds = new Set(events.map((event) => event.id));
 
-  DB.events.getAll().forEach((event) => {
+  events.forEach((event) => {
     if (!`${event.name ?? ''} ${event.city ?? ''}`.toLowerCase().includes(query)) return;
     results.push({
       type: 'event',
@@ -161,7 +163,7 @@ function collectResults(query) {
     });
   });
 
-  DB.participants.getAll().forEach((pax) => {
+  DB.participants.getAll().filter((pax) => eventIds.has(pax.eventId)).forEach((pax) => {
     if (!`${pax.firstName ?? ''} ${pax.lastName ?? ''} ${pax.company ?? ''}`.toLowerCase().includes(query)) return;
     results.push({
       type: 'pax',

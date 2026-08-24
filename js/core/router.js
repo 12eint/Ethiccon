@@ -7,7 +7,7 @@
  */
 import { renderSidebar } from '../components/sidebar.js';
 import { renderTopbar } from '../components/topbar.js';
-import { hasPermission } from './auth.js';
+import { canAccessEvent, hasPermission } from './auth.js';
 import { DB } from './store.js';
 import { refreshIcons } from './ui.js';
 
@@ -137,10 +137,18 @@ export function startRouter() {
     const ctx = parseHash(window.location.hash);
     let route = ROUTES[ctx.name];
 
-    // Bilinmeyen rota veya kayıp organizasyon → dashboard
-    if (!route || (ctx.name === 'org' && !DB.events.getById(ctx.id))) {
+    // Bilinmeyen rota → dashboard
+    if (!route) {
       route = ROUTES.dashboard;
       ctx.name = 'dashboard';
+    }
+
+    // Kayıp veya kullanıcıya atanmamış organizasyon adres çubuğundan da
+    // açılamaz. Hash'i de düzeltmek geri/ileri gezinmesinde aynı kaçak rotaya
+    // tekrar düşülmesini önler.
+    if (ctx.name === 'org' && !canAccessEvent(ctx.id)) {
+      navigateTo(paths.dashboard());
+      return;
     }
 
     if (route.permission && !hasPermission(route.permission)) {
